@@ -38,7 +38,6 @@ class Localizer():
 
         description_nouns = self.get_nouns(classifier) # Nouns in the descriptions, key is id
         sg_nouns = self.scene_graph.nouns # Nouns in the scene graph, key is id, Dictionary
-        sg_nouns_sorted = self.scene_graph.nouns_sorted # Nouns in the scene graph sorted by count, List of tuples
         # Check nouns is not empty
         if len(sg_nouns) == 0 or len(description_nouns) == 0:
             print("No nouns found in scene graph or descriptions")
@@ -209,7 +208,6 @@ class Localizer():
  
     # Input: desc_nouns: Dictionary of description id and nouns
     #        sg_nouns: Dictionary of scene graph nouns and their counts
-    #        sg_nouns_sorted: List of tuples of scene graph nouns sorted by count
     #        description_id_to_match: Description id to match
     # Output: List of tuples of description id and scene graph id
     def match(self, desc_nouns, sg_nouns, description_id_to_match=None):
