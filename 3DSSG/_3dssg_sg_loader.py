@@ -7,11 +7,14 @@ import numpy as np
 class SceneGraph:
     def __init__(self, scene_id, euc_dist_thres=1.0):
         self.scene_id = scene_id
-        self.euc_dist_thres = euc_dist_thres
+        self.euc_dist_thres = euc_dist_thres # For adding edges to the graph
+
+        self.scene_graph = self.load_scene_graph()
+        self.objects_in_scan = self.get_objects_in_scan()
 
         self.nouns = self.get_nouns()
         self.nouns_sorted = self.get_nouns_sorted()
-        self.objects_in_scan = self.get_objects_in_scan()
+
         self.label_id_mapping = self.get_label_id_mapping()
 
         self.graph_adj_list = self.get_graph_adj_list()
@@ -35,9 +38,8 @@ class SceneGraph:
         return sorted(nouns)
     
     def get_objects_in_scan(self):
-        scene_graph = self.load_scene_graph()
         objects_in_scan = []
-        for obj in scene_graph['objects']:
+        for obj in self.scene_graph['objects']:
             objects_in_scan.append(obj['object_id'])
         return objects_in_scan
     

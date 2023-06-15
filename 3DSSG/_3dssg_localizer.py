@@ -320,8 +320,8 @@ if __name__ == "__main__":
     # New Scene Graph
     scene_graph = SceneGraph(scene_id, euc_dist)
  
-    # New 3RScan Description Loader
-    scene_descriptions = ScanDescriptions(scene_id)
+    # # New 3RScan Description Loader
+    # scene_descriptions = ScanDescriptions(scene_id)
 
-    # New Localizer
-    localizer = Localizer(scene_graph, scene_descriptions, description_id_to_match, classifier, max_steps)
+    # # New Localizer
+    # localizer = Localizer(scene_graph, scene_descriptions, description_id_to_match, classifier, max_steps)
