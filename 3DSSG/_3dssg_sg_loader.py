@@ -4,9 +4,13 @@ import json
 import numpy as np
 import pandas as pd
 
+from _3dssg_utils import noun_in_list_of_nouns
+
 class SceneGraph:
-    def __init__(self, scene_id, euc_dist_thres=1.0):
+    def __init__(self, scene_id, label_mapping, euc_dist_thres=1.0):
         self.scene_id = scene_id
+        self.label_mapping = label_mapping
+        self.label_count_mapping = {}
         self.euc_dist_thres = euc_dist_thres # For adding edges to the graph
 
         self.objects_in_scan = self.get_objects_in_scan(scene_id)
@@ -46,7 +50,7 @@ class SceneGraph:
         objects_in_scan = pd.DataFrame(objects_in_scan)
 
         # Drop unnecessary columns
-        objects_in_scan = objects_in_scan.drop(columns=['attributes', 'ply_color', 'nyu40', 'eigen13', 'rio27', 'affordances'])
+        objects_in_scan = objects_in_scan.drop(columns=['attributes', 'ply_color', 'eigen13', 'rio27', 'affordances'])
 
         # Convert back to list of dicts
         objects_in_scan = objects_in_scan.to_dict('records')
@@ -63,7 +67,41 @@ class SceneGraph:
 
             obj['obb'] = segmentations_dict[obj['id']]['obb']
 
+            # Add label_mapping to objects_in_scan based on similar label
+            obj_label = obj['label']
+
+            # Get the most similar label if it's not in list already
+            if (obj_label not in self.label_mapping.label_keys):
+                # Get the most similar label
+                max_sim_label, sim = noun_in_list_of_nouns(obj_label, self.label_mapping.label_keys, threshold=0.7)
+
+                # TODO: do something with sim
+
+                if max_sim_label is None:
+                    # Didn't find anything at all, probably very unique or mispelled
+                    self.label_count_mapping[obj_label] = 1
+                else:
+                    self.label_count_mapping[obj_label] = self.label_mapping.get_label_mapping()[max_sim_label][0]['count']
+            else:
+                self.label_count_mapping[obj_label] = self.label_mapping.get_label_mapping()[obj_label][0]['count']
+
         return objects_in_scan
+    
+    # def noun_in_list_of_nouns(noun, nouns, threshold=0.5):
+    #     # Get word2vec of noun
+    #     noun_vec = nlp(noun)[0].vector
+
+    #     # Find the noun in nouns with the highest similarity, spacy similarity
+    #     max_sim = 0
+    #     max_sim_noun = None
+    #     for n in nouns:
+    #         # oun_vec = nlp(n)[0].vector
+    #         sim = nlp(noun).similarity(nlp(n))
+    #         if sim > max_sim:
+    #             max_sim = sim
+    #             max_sim_noun = n
+
+    #     return max_sim_noun, max_sim > threshold
 
     def get_nouns(self):
         # Dict of noun with count
@@ -102,13 +140,40 @@ class SceneGraph:
             if r['scan'] == scene_id:
                 relationships = r
                 break
-    
+
         # Add edges to graph
         for rel in relationships['relationships']:
             first_obj = rel[0]
-            # TODO: Add the relationships to the graph
+            second_obj = rel[1]
+            relation = rel[3] # relation currently not used
 
-            # Add edge to graph
-            graph_adj_list[rel['subject']]['adj_to'].append(rel['object'])
-            graph_adj_list[rel['object']]['adj_to'].append(rel['subject'])
+            # If relation does not have 'than', 'same' add to graph
+            if 'than' not in relation and 'same' not in relation and 'by' not in relation:
+                # Only add if object obb centroid are within self.euc_dist_thres
+                distance = self.get_obj_distance(first_obj, second_obj)
+                if distance < self.euc_dist_thres:
+                    # Add edge to graph if not already added
+                    if second_obj not in graph_adj_list[str(first_obj)]['adj_to']:
+                        graph_adj_list[str(first_obj)]['adj_to'].append(second_obj)
+                    if first_obj not in graph_adj_list[str(second_obj)]['adj_to']:
+                        graph_adj_list[str(second_obj)]['adj_to'].append(first_obj)
+
+
+        return graph_adj_list
     
+    def get_obj_distance(self, first_obj, second_obj):
+        first_obj_centroid = self.get_obj_centroid(first_obj)
+        second_obj_centroid = self.get_obj_centroid(second_obj)
+        distance = np.linalg.norm(first_obj_centroid - second_obj_centroid)
+        return distance
+    
+    def get_obj_centroid(self, obj_id):
+        obj = self.get_obj_by_id(obj_id)
+        obj_centroid = np.array(obj['obb']['centroid'])
+        return obj_centroid
+    
+    def get_obj_by_id(self, obj_id):
+        for obj in self.objects_in_scan:
+            if obj['id'] == str(obj_id):
+                return obj
+        return None
