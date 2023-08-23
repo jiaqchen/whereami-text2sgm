@@ -1,0 +1,16 @@
+{
+    "nodes": [
+        {
+            "id": "1",
+            "label": "",
+            "attributes": []
+        }
+    ],
+    "edges": [
+        {
+            "source": "",
+            "target": "",
+            "relationship": ""
+        }
+    ]
+}

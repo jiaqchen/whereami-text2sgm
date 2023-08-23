@@ -1,2 +1,5 @@
 data/*
 */__pycache__/*
+data_website/client/data/*
+data_website/server/static/*
+

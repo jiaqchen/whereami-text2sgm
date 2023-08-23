@@ -200,8 +200,8 @@ class Localizer():
             # If found similar, increment graph_value by 1 / count of noun in scene graph
             if found_similar:
                 if count_in_all:
-                    # graph_adj_list[curr_node]['graph_value'] += 1 + (float(1) / (self.scene_graph.label_count_mapping[max_sim_noun]))
-                    graph_adj_list[curr_node]['graph_value'] += (float(1) / (self.scene_graph.label_count_mapping[max_sim_noun]))
+                    graph_adj_list[curr_node]['graph_value'] += 1 + (float(1) / (self.scene_graph.label_count_mapping[max_sim_noun]))
+                    # graph_adj_list[curr_node]['graph_value'] += (float(1) / (self.scene_graph.label_count_mapping[max_sim_noun]))
                 else:
                     graph_adj_list[curr_node]['graph_value'] += 1 + (float(1) / len(self.scene_graph.label_id_mapping[max_sim_noun]))
         except KeyError:
