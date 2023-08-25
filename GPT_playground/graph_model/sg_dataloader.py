@@ -19,9 +19,10 @@ class Node:
         self.node_type = node_type          # str
         if (node_type == 'place'):
             self.obj_id = obj_id # TODO: make sure this is unique
-            self.label = None
+            self.label = label
             self.attributes = None
-            self.features = np.ones(node_configs['node_label_vec_dim'] + node_configs['node_attributes_vec_dim']) # TODO: dimension of node features should be generalizable
+            # self.features = np.zeros(node_configs['node_label_vec_dim']) # TODO: dimension of node features should be generalizable
+            self.features = self.set_features(label, attributes) # TODO: place node should have "place" as label and appropriate feature
         else:
             assert(type(label) == str)
             self.obj_id = obj_id                # int
@@ -34,7 +35,8 @@ class Node:
         attributes = self.vectorize_attributes(attributes)
         assert(len(label) == len(attributes))
         features = np.concatenate((label, attributes), axis=0)
-        return features
+        assert(len(label) == 300) # TODO: hard coded
+        # return features
         return label # TODO: Only use label for now, dim = 300
     
     def vectorize_label(self, label):
@@ -109,12 +111,20 @@ class GraphLoader:
         nodes = []
         if graph_type == '3DSSG':
             for obj in objs:
-                node = Node('3dssg_node', int(obj['id'])-1, obj['label'], obj['attributes']) # TODO: -1 to make nodes index from 0
-                nodes.append(node)
-        elif graph_type == 'human+GPT': # Y r they the same
+                if ('attributes' in obj.keys() and len(obj['attributes']) > 0):
+                    node = Node('3dssg_node', int(obj['id'])-1, obj['label'], obj['attributes']) # TODO: -1 to make nodes index from 0
+                    nodes.append(node)
+                else: # TODO: No attributes, add empty attribute, check if the attribute is not used elsewhere
+                    node = Node('3dssg_node', int(obj['id'])-1, obj['label'], None) # TODO: -1 to make nodes index from 0
+                    nodes.append(node)
+        elif graph_type == 'human+GPT': # TODO: refactor this, same procedure between 3DSSG and human+GPT
             for obj in objs:
-                node = Node('human_node', int(obj['id'])-1, obj['label'], obj['attributes']) # TODO: -1 to make nodes index from 0
-                nodes.append(node)
+                if ('attributes' in obj.keys() and len(obj['attributes']) > 0):
+                    node = Node('human_node', int(obj['id'])-1, obj['label'], obj['attributes']) # TODO: -1 to make nodes index from 0
+                    nodes.append(node)
+                else:
+                    node = Node('human_node', int(obj['id'])-1, obj['label'], None)
+                    nodes.append(node)
         return nodes
     
     def set_edges(self, graph_type, graph_edges):
@@ -280,6 +290,12 @@ class SceneGraph:
         self.nodes = self.graph_loader.get_nodes()
         self.edges = self.graph_loader.get_edges()
     
+    def get_place_node_idx(self):
+        for node in self.nodes:
+            if node.node_type == 'place':
+                return node, node.obj_id
+        return None, None
+    
     def test_nodes_edges_index(self, nodes, edges):
         # Make srue all nodes index from 0, and there are no gaps
         obj_ids = [node.obj_id for node in nodes]
@@ -315,11 +331,11 @@ class SceneGraph:
 
     def add_place_node(self):
         # Make new Place node
-        place_node = Node('place', obj_id=len(self.nodes), label=None, attributes=None)
+        place_node = Node('place', obj_id=len(self.nodes), label='place', attributes=None)
 
         # Add edges from all nodes to place node
         for node in self.nodes:
-            edge = Edge(node.obj_id, place_node.obj_id, 'child') # TODO: should the relation here be "child"?
+            edge = Edge(node.obj_id, place_node.obj_id, 'in') # TODO: should the relation here be "child"?
             self.edges.append(edge)
 
         self.nodes.append(place_node)
