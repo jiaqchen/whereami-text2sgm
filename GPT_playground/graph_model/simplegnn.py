@@ -19,8 +19,8 @@ class BigGNN(nn.Module):
         super().__init__()
         self.TextSelfAttention = SimpleGNN(300, 300, 300)
         self.GraphSelfAttention = SimpleGNN(300, 300, 300)
-        self.TextCrossAttention = SimpleGNN(900, 300, 300)
-        self.GraphCrossAttention = SimpleGNN(900, 300, 300)
+        self.TextCrossAttention = SimpleGNN(300, 300, 300)
+        self.GraphCrossAttention = SimpleGNN(300, 300, 300)
         # MLP for predicting matching score between 0 and 1
         self.SceneText_MLP = nn.Sequential(
             nn.Linear(600, 600), # TODO: input dimension is hardcoded now
@@ -50,7 +50,7 @@ class BigGNN(nn.Module):
             # self.place_node_1_idx = place_node_1_idx
             # self.place_node_2_idx = place_node_2_idx
 
-        N = 16 # Number of iterations
+        N = 2 # Number of iterations
         for _ in range(N):
 
             # Batch Norm
@@ -103,10 +103,22 @@ class SimpleGNN(MessagePassing):
 
     def forward(self, x, edge_index, edge_attr):
         x = self.GATConv_nodes(x, edge_index)
+
+        # Take average over heads (TODO: for multi-head attention, currently not working)
+        # x = x.view(x.size(0), -1, self.GATConv_nodes.heads)  # Shape: [num_nodes, out_channels, num_heads]
+        # x = torch.mean(x, dim=-1)
+
         x = F.relu(x)
         # Normalize
         x = F.normalize(x, p=2, dim=1)
         return x
+    
+    def message(self, x_i, x_j, edge_attr):
+        # x_j is the feature of the neighboring node
+        # edge_attr is the edge feature
+        # x_i is the feature of the central node
+        
+        return self.message_lin(x_j)
 
 # class SimpleGNN(MessagePassing):
 #     def __init__(self, in_channels_node, in_channels_edge, out_channels):
@@ -190,7 +202,7 @@ def train_dummy_big_gnn(graph1, graph2):
         loss2 = F.mse_loss(out2, x_2) # Compute the loss.
         loss3 = F.mse_loss(out_matching, torch.tensor([1.0], dtype=torch.float)) # TODO: loss3 is distance vector, but could also try cosine similarity, or after MLP
         # loss3 = F.mse_loss(out1[place_node_1_idx], out2[place_node_2_idx]) # TODO: loss3 is distance vector, but could also try cosine similarity, or after MLP
-        loss = loss1 + loss2 + loss3
+        loss = loss1 + loss2
         loss.backward() # Derive gradients.
         optimizer.step() # Update parameters based on gradients.
 
@@ -315,3 +327,4 @@ if __name__ == '__main__':
     #     - Check if we recover the "word" that was masked
     # TODO: Validate on 10 examples to see if we learn anything
     # TODO: Refactor everything and make it clean to swap out with GATConv or something else
+    # TODO: After refactoring, add multi-headed attention
