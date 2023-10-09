@@ -4,7 +4,7 @@ import json
 import numpy as np
 import pandas as pd
 
-from utils import noun_in_list_of_nouns, vectorize_word
+from utils import noun_in_list_of_nouns, vectorize_word, txt_to_json
 
 graph_origin_type = ['3DSSG', 'human+GPT']
 
@@ -25,19 +25,28 @@ class Node:
             self.features = self.set_features(label, attributes) # TODO: place node should have "place" as label and appropriate feature
         else:
             assert(type(label) == str)
-            self.obj_id = obj_id                # int
-            self.label = label                  # str
-            self.attributes = attributes        # list of str
-            self.features = self.set_features(label, attributes)   # np.array
+            self.obj_id = obj_id                    # int
+            self.label = self.clean_label(label)    # str
+            self.attributes = attributes            # list of str
+            self.features = self.set_features(self.label, attributes)   # np.array
+
+        # Make sure node is 1 word, take the last word if multiple words
+
+    def clean_label(self, label):
+        label = label.lower()
+        label = label.split(' ')
+        label = label[-1]
+        return label
 
     def set_features(self, label, attributes):
         label = self.vectorize_label(label)
         attributes = self.vectorize_attributes(attributes)
         assert(len(label) == len(attributes))
-        features = np.concatenate((label, attributes), axis=0)
-        assert(len(label) == 300) # TODO: hard coded
+        # features = np.concatenate((label, attributes), axis=0)
+        features = label + attributes
+        assert(len(features) == 300) # TODO: hard coded
         # return features
-        return label # TODO: Only use label for now, dim = 300
+        return features # TODO: Only use label for now, dim = 300
     
     def vectorize_label(self, label):
         return vectorize_word(label)
@@ -62,7 +71,10 @@ class Edge:
         assert(type(relation) == str)
         self.source = source
         self.target = target
-        self.relation = self.vectorize_relation(relation)
+        if relation != '':
+            self.relation = self.vectorize_relation(relation)
+        else:
+            self.relation = np.zeros(node_configs['edge_features_vec_dim'])
         assert(len(self.relation) == node_configs['edge_features_vec_dim'])
 
     def vectorize_relation(self, relation):
@@ -80,6 +92,8 @@ class GraphLoader:
             with open(raw_json, 'r') as f:
                 raw_json = f.read()
             graph_dict = json.loads(raw_json)
+            if type(graph_dict) is str: # Still a string and need to be turned into dict
+                graph_dict = txt_to_json(graph_dict) # TODO: Only needed for ScanScribe, but doesn't hurt for human+GPT, need to check though
 
             self.nodes = self.set_nodes(graph_type, graph_dict['nodes'])
             self.edges = self.set_edges(graph_type, graph_dict['edges'])
@@ -111,6 +125,8 @@ class GraphLoader:
         nodes = []
         if graph_type == '3DSSG':
             for obj in objs:
+                if (obj['label'] == 'ceiling' or obj['label'] == 'wall' or obj['label'] == 'floor'):
+                    continue
                 if ('attributes' in obj.keys() and len(obj['attributes']) > 0):
                     node = Node('3dssg_node', int(obj['id'])-1, obj['label'], obj['attributes']) # TODO: -1 to make nodes index from 0
                     nodes.append(node)
@@ -119,6 +135,8 @@ class GraphLoader:
                     nodes.append(node)
         elif graph_type == 'human+GPT': # TODO: refactor this, same procedure between 3DSSG and human+GPT
             for obj in objs:
+                if (obj['label'] == 'ceiling' or obj['label'] == 'wall' or obj['label'] == 'floor'):
+                    continue
                 if ('attributes' in obj.keys() and len(obj['attributes']) > 0):
                     node = Node('human_node', int(obj['id'])-1, obj['label'], obj['attributes']) # TODO: -1 to make nodes index from 0
                     nodes.append(node)
@@ -131,12 +149,20 @@ class GraphLoader:
         edges = []
         if graph_type == '3DSSG':
             for obj_id, obj in graph_edges.items():
+                if (obj['label'] == 'ceiling' or obj['label'] == 'wall' or obj['label'] == 'floor'):
+                    continue
                 for adj_to in obj['adj_to']:
                     edge = Edge(int(obj_id)-1, int(adj_to['id'])-1, adj_to['relation']) # TODO: -1 to make nodes index from 0
                     # edge = Edge(int(obj_id), int(adj_to['id']), adj_to['relation'])
                     edges.append(edge)
         elif graph_type == 'human+GPT':
             for edge in graph_edges:
+                # if (obj['label'] == 'ceiling' or obj['label'] == 'wall' or obj['label'] == 'floor'):
+                #     continue
+                # Check if edge is valid
+                if not edge['source'].isnumeric() or not edge['target'].isnumeric():
+                    print('Warning: Edge not valid ' + str(edge))
+                    continue
                 edge = Edge(int(edge['source'])-1, int(edge['target'])-1, edge['relationship']) # TODO: -1 to make nodes index from 0
                 # edge = Edge(int(edge['source']), int(edge['target']), edge['relationship']) 
                 edges.append(edge)
@@ -219,18 +245,25 @@ class GraphLoader:
             relationships = json.load(f)
         relationships = relationships['scans']
 
+        relationship = None
         # Find scan with scene_id
         for r in relationships:
             if r['scan'] == scene_id:
-                relationships = r
+                relationship = r
                 break
-
+        
+        if relationship is None:
+            raise Exception('No relationship found for this scene')
+        
         # Add edges to graph
-        for rel in relationships['relationships']:
+        for rel in relationship['relationships']:
             first_obj = rel[0]  # int
             second_obj = rel[1] # int
             relation = rel[3]   # str; first_obj --> relation --> second_obj
                                 # side table 'standing on' floor
+
+            if second_obj not in graph_adj_list.keys():
+                continue
 
             # If relation does not have 'than', 'same' add to graph
             if 'than' not in relation and 'same' not in relation and 'by' not in relation:
@@ -331,7 +364,7 @@ class SceneGraph:
 
     def add_place_node(self):
         # Make new Place node
-        place_node = Node('place', obj_id=len(self.nodes), label='place', attributes=None)
+        place_node = Node('place', obj_id=len(self.nodes), label='', attributes=None)
 
         # Add edges from all nodes to place node
         for node in self.nodes:
