@@ -13,6 +13,33 @@ import re
 import json
 import math
 
+################################ DATASET LOAD ################################
+
+def load_text_dataset(filename):
+    if filename == "scanscribe_1.json":
+        with open("../scripts/hugging_face/" + filename, "r") as f:
+            scanscribe = json.load(f)
+        
+        scan_ids = set()
+        dict_of_texts = scanscribe
+    elif filename == "scanscribe.json":
+        # open scanscribe.json
+        with open("../scripts/hugging_face/" + filename, "r") as f:
+            scanscribe = json.load(f)
+        # load text data
+        scan_ids = set()
+        dict_of_texts = {}
+        for s in scanscribe:
+            scan_id = s['scan_id']
+            scan_ids.add(scan_id)
+            if scan_id not in dict_of_texts:
+                dict_of_texts[scan_id] = []
+            dict_of_texts[scan_id].append(s['sentence'])
+    else:
+        print("Invalid filename")
+        return
+    return scan_ids, dict_of_texts
+
 ################################ GENERAL UTILS ################################
 def txt_to_json(text):
     # remove \n and change \" to "
@@ -143,18 +170,16 @@ def accuracy_score(y_pred, y_true, top_n=3, thresh=0.8):
 
     return count_correct / y_pred.shape[0]
 
-# # main
-# if __name__ == '__main__':
-#     # check the similarity between chair and couch
-#     things = ['shower', 'sink', 'window', 'floor', 'wall', 'mirror']
-#     avg_t = []
-#     for t in things:
-#         t_vector = nlp(t)[0].vector
-#         avg_t.append(t_vector)
-#     avg_t = np.mean(avg_t, axis=0)
-#     t_word_top_n = recover_word(avg_t)
-#     print("Closest to list things, ", t_word_top_n)
-#     print_word_similarity('bathroom', t_word_top_n[0])
+# main
+if __name__ == '__main__':
+    # check the similarity between chair and couch
+    things = ['shower', 'sink', 'window', 'floor', 'wall', 'mirror']
+    avg_t = []
+    for t in things:
+        t_vector = nlp(t)[0].vector
+        avg_t.append(t_vector)
+    avg_t = np.mean(avg_t, axis=0)
+    t_word_top_n = recover_word(avg_t)
+    print("Closest to list things, ", t_word_top_n)
+    print_word_similarity('bathroom', t_word_top_n[0])
 
-
-    

@@ -1,10 +1,12 @@
 # Class for scene graph loader
+from typing import List
 import os
 import json
 import numpy as np
 import pandas as pd
 
 from utils import noun_in_list_of_nouns, vectorize_word, txt_to_json
+from create_text_embeddings import create_embedding
 
 graph_origin_type = ['3DSSG', 'human+GPT']
 
@@ -13,24 +15,50 @@ node_configs = {'node_label_vec_dim': 300, # spaCy word2vec dim, only allows 300
                 'node_attributes_vec_dim': 300,
                 'edge_features_vec_dim': 300}
 
+embedding_map = {}
+
 class Node:
     def __init__(self, node_type, obj_id, label, attributes):
         assert(type(obj_id) == int)
         self.node_type = node_type          # str
-        if (node_type == 'place'):
-            self.obj_id = obj_id # TODO: make sure this is unique
-            self.label = label
-            self.attributes = None
-            # self.features = np.zeros(node_configs['node_label_vec_dim']) # TODO: dimension of node features should be generalizable
-            self.features = self.set_features(label, attributes) # TODO: place node should have "place" as label and appropriate feature
-        else:
-            assert(type(label) == str)
-            self.obj_id = obj_id                    # int
-            self.label = self.clean_label(label)    # str
-            self.attributes = attributes            # list of str
-            self.features = self.set_features(self.label, attributes)   # np.array
+        self.obj_id = obj_id # TODO: make sure this is unique
+        self.label = label
+        self.attributes = attributes
+        self.features = self.set_features_ada_002_embedding(label, attributes)
+        # if label in embedding_map:
+        #     self.label = embedding_map[label]
+        # else:
+        #     self.label = create_embedding(label)
+        #     assert(len(self.label) == 1536)
+        #     embedding_map[label] = self.label
 
-        # Make sure node is 1 word, take the last word if multiple words
+        # if (node_type == 'place'):
+        #     self.label = label
+        #     self.attributes = None
+        #     # self.features = np.zeros(node_configs['node_label_vec_dim']) # TODO: dimension of node features should be generalizable
+        #     self.features = self.set_features(self.label, attributes) # TODO: place node should have "place" as label and appropriate feature
+        # else:
+        #     assert(type(label) == str)
+        #     self.label = self.clean_label(label)    # str
+        #     self.attributes = attributes            # list of str
+        #     self.features = self.set_features(self.label, attributes)   # np.array
+
+    def set_features_ada_002_embedding(self, label: str, attributes: List[str]):
+        # Turn attributes into string with spaces
+        if attributes is None:
+            attributes = ''
+        else:
+            attributes = ' '.join(attributes)
+
+        # Concatenate label and attributes
+        text = label + ' ' + attributes
+        if text in embedding_map:
+            feature = embedding_map[text]
+        else:
+            feature = create_embedding(text)
+            embedding_map[text] = feature
+        assert(len(feature) == 1536)
+        return feature
 
     def clean_label(self, label):
         label = label.lower()
@@ -125,8 +153,8 @@ class GraphLoader:
         nodes = []
         if graph_type == '3DSSG':
             for obj in objs:
-                if (obj['label'] == 'ceiling' or obj['label'] == 'wall' or obj['label'] == 'floor'):
-                    continue
+                # if (obj['label'] == 'ceiling' or obj['label'] == 'wall' or obj['label'] == 'floor'):
+                #     continue
                 if ('attributes' in obj.keys() and len(obj['attributes']) > 0):
                     node = Node('3dssg_node', int(obj['id'])-1, obj['label'], obj['attributes']) # TODO: -1 to make nodes index from 0
                     nodes.append(node)
@@ -135,8 +163,8 @@ class GraphLoader:
                     nodes.append(node)
         elif graph_type == 'human+GPT': # TODO: refactor this, same procedure between 3DSSG and human+GPT
             for obj in objs:
-                if (obj['label'] == 'ceiling' or obj['label'] == 'wall' or obj['label'] == 'floor'):
-                    continue
+                # if (obj['label'] == 'ceiling' or obj['label'] == 'wall' or obj['label'] == 'floor'):
+                #     continue
                 if ('attributes' in obj.keys() and len(obj['attributes']) > 0):
                     node = Node('human_node', int(obj['id'])-1, obj['label'], obj['attributes']) # TODO: -1 to make nodes index from 0
                     nodes.append(node)
@@ -149,8 +177,8 @@ class GraphLoader:
         edges = []
         if graph_type == '3DSSG':
             for obj_id, obj in graph_edges.items():
-                if (obj['label'] == 'ceiling' or obj['label'] == 'wall' or obj['label'] == 'floor'):
-                    continue
+                # if (obj['label'] == 'ceiling' or obj['label'] == 'wall' or obj['label'] == 'floor'):
+                #     continue
                 for adj_to in obj['adj_to']:
                     edge = Edge(int(obj_id)-1, int(adj_to['id'])-1, adj_to['relation']) # TODO: -1 to make nodes index from 0
                     # edge = Edge(int(obj_id), int(adj_to['id']), adj_to['relation'])
@@ -363,8 +391,13 @@ class SceneGraph:
         assert(len(self.nodes) == len(mapping))
 
     def add_place_node(self):
+        # Check if place node already exists
+        for node in self.nodes:
+            if node.node_type == 'place':
+                return
+            
         # Make new Place node
-        place_node = Node('place', obj_id=len(self.nodes), label='', attributes=None)
+        place_node = Node('place', obj_id=len(self.nodes), label='room', attributes=None)
 
         # Add edges from all nodes to place node
         for node in self.nodes:
