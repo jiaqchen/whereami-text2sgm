@@ -82,7 +82,7 @@ def train_gcn_model(text_dict: dict, graph_dict: dict):
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay) # TODO: no weight decay for now
 
     loss = torch.tensor(0.0)#.to(device)
-    batch = 128
+    batch = 0
     for epoch in range(args.epoch):
         model.train()
         scene_ids = text_dict.keys()
@@ -107,7 +107,7 @@ def train_gcn_model(text_dict: dict, graph_dict: dict):
                 edge_attr_neg = torch.tensor(edge_features_neg, dtype=torch.float)#.to(device)
                 _, place_node_neg = graph_neg.get_place_node_idx()
 
-                if batch == 128:
+                if batch == args.batch_size:
                     optimizer.zero_grad()
 
                 text_encoded, graph_encoded = model(t, graph_features, edge_indices, edge_attr, place_node)
@@ -118,7 +118,7 @@ def train_gcn_model(text_dict: dict, graph_dict: dict):
                 loss1 = 1 - F.cosine_similarity(graph_encoded, text_encoded, dim=0)
                 loss += triplet_loss(text_encoded, graph_encoded, graph_encoded_neg, m=args.triplossmargin) + loss1
                 # loss = F.mse_loss(graph_encoded, text_encoded)
-                if batch == 128:
+                if batch == args.batch_size:
                     loss = loss / batch
                     loss.backward()
                     optimizer.step()
@@ -146,7 +146,7 @@ def train_gcn_model(text_dict: dict, graph_dict: dict):
         print("Epoch: " + str(epoch) + ", Loss: " + str(loss_rounded) + ", Accuracy: " + str(accuracy_rounded) + ", Accuracy Val: " + str(accuracy_val_rounded))
 
         if epoch % 5 == 0 and epoch != 0:
-            torch.save(model.state_dict(), 'text_gcn_epoch_'+str(args.epoch)+'_tripletloss_'+str(args.triplossmargin)+'_smallerdataset_'+str(args.smaller_dataset)+'_hiddenlayers_'+str(args.hidden_layers)+'.pt')
+            torch.save(model.state_dict(), 'text_gcn_epoch_'+str(args.epoch)+'_tripletloss_'+str(args.triplossmargin)+'_smallerdataset_'+str(args.smaller_dataset)+'_hiddenlayers_'+str(args.hidden_layers)+'_batchsize_'+str(args.batch_size)+'.pt')
 
 
     return model
@@ -218,6 +218,7 @@ if __name__ == '__main__':
     parser.add_argument('--triplossmargin', type=float, default=None)
     parser.add_argument('--hidden_layers', type=int, default=512)
     parser.add_argument('--force_retrain', type=bool, default=False)
+    parser.add_argument('--batch_size', type=int, default=32)
     args = parser.parse_args()
 
     dict_of_texts = None
@@ -287,15 +288,15 @@ if __name__ == '__main__':
 
     if args.force_retrain:
         model = train_gcn_model(dict_of_texts, dict_3dssg_ada_labels)
-        torch.save(model.state_dict(), 'text_gcn_epoch_'+str(args.epoch)+'_tripletloss_'+str(args.triplossmargin)+'_smallerdataset_'+str(args.smaller_dataset)+'_hiddenlayers_'+str(args.hidden_layers)+'.pt')
-    elif os.path.exists('text_gcn_epoch_'+str(args.epoch)+'_tripletloss_'+str(args.triplossmargin)+'_smallerdataset_'+str(args.smaller_dataset)+'_hiddenlayers_'+str(args.hidden_layers)+'.pt'):
-        print('Loading saved model ' + 'text_gcn_epoch_'+str(args.epoch)+'_tripletloss_'+str(args.triplossmargin)+'_smallerdataset_'+str(args.smaller_dataset)+'_hiddenlayers_'+str(args.hidden_layers)+'.pt')
+        torch.save(model.state_dict(), 'text_gcn_epoch_'+str(args.epoch)+'_tripletloss_'+str(args.triplossmargin)+'_smallerdataset_'+str(args.smaller_dataset)+'_hiddenlayers_'+str(args.hidden_layers)+'_batchsize_'+str(args.batch_size)+'.pt')
+    elif os.path.exists('text_gcn_epoch_'+str(args.epoch)+'_tripletloss_'+str(args.triplossmargin)+'_smallerdataset_'+str(args.smaller_dataset)+'_hiddenlayers_'+str(args.hidden_layers)+'_batchsize_'+str(args.batch_size)+'.pt'):
+        print('Loading saved model ' + 'text_gcn_epoch_'+str(args.epoch)+'_tripletloss_'+str(args.triplossmargin)+'_smallerdataset_'+str(args.smaller_dataset)+'_hiddenlayers_'+str(args.hidden_layers)+'_batchsize_'+str(args.batch_size)+'.pt')
         model = TextGCN()
-        model.load_state_dict(torch.load('text_gcn_epoch_'+str(args.epoch)+'_tripletloss_'+str(args.triplossmargin)+'_smallerdataset_'+str(args.smaller_dataset)+'_hiddenlayers_'+str(args.hidden_layers)+'.pt'))
+        model.load_state_dict(torch.load('text_gcn_epoch_'+str(args.epoch)+'_tripletloss_'+str(args.triplossmargin)+'_smallerdataset_'+str(args.smaller_dataset)+'_hiddenlayers_'+str(args.hidden_layers)+'_batchsize_'+str(args.batch_size)+'.pt'))
         model.eval()
     else:
         model = train_gcn_model(dict_of_texts, dict_3dssg_ada_labels)
-        torch.save(model.state_dict(), 'text_gcn_epoch_'+str(args.epoch)+'_tripletloss_'+str(args.triplossmargin)+'_smallerdataset_'+str(args.smaller_dataset)+'_hiddenlayers_'+str(args.hidden_layers)+'.pt')
+        torch.save(model.state_dict(), 'text_gcn_epoch_'+str(args.epoch)+'_tripletloss_'+str(args.triplossmargin)+'_smallerdataset_'+str(args.smaller_dataset)+'_hiddenlayers_'+str(args.hidden_layers)+'_batchsize_'+str(args.batch_size)+'.pt')
 
     # Evaluate
     pos, neg, total = evaluate_classification(model, dict_3dssg_ada_labels, text=dict_of_texts)

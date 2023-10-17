@@ -43,7 +43,7 @@ class Node:
         #     self.attributes = attributes            # list of str
         #     self.features = self.set_features(self.label, attributes)   # np.array
 
-    def set_features_ada_002_embedding(self, label: str, attributes: List[str]):
+    def set_features_ada_002_embedding(self, label: str, attributes: List[str], without_attributes=True):
         # Turn attributes into string with spaces
         if attributes is None:
             attributes = ''
@@ -52,6 +52,8 @@ class Node:
 
         # Concatenate label and attributes
         text = label + ' ' + attributes
+        if (without_attributes):
+            text = label
         if text in embedding_map:
             feature = embedding_map[text]
         else:
