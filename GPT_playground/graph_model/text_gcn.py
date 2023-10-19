@@ -39,18 +39,27 @@ class TextGCN(nn.Module): # Not really a GCN, but a GAT?? Using TransformerConv
         # GCN to learn graph embedding, also D-dim, global graph embedding
         # NOTE: We're just going to try a SimpleGAT for now
         self.transformerConv1 = TransformerConv(in_channels=D, out_channels=hidden_channels, 
-                                               heads=8, concat=False, 
-                                               dropout=0.7) # TODO: one layer for now
+                                               heads=4, concat=False, 
+                                               dropout=0.5) # TODO: one layer for now
         self.transformerConv2 = TransformerConv(in_channels=hidden_channels, out_channels=hidden_channels,
-                                                  heads=8, concat=False,
-                                                    dropout=0.7)
-        self.lin = Linear(hidden_channels, D)
+                                                  heads=4, concat=False,
+                                                    dropout=0.5)
+        self.lin = Linear(hidden_channels, 4096)
+        self.lin1 = Linear(4096, D)
+
+
 
     def forward(self, x_text, x_graph, edge_index, edge_attr, place_node):
         # TODO: not doing anything with x_text yet because it's already an embedding from text-embedding-ada-002
         x_graph = self.transformerConv1(x_graph, edge_index)
         x_graph = x_graph.relu()
+        x_graph = self.transformerConv2(x_graph, edge_index)
+        x_graph = x_graph.relu()
         x_graph = self.lin(x_graph)
+        x_graph = x_graph.relu()
+        x_graph = self.lin1(x_graph)
+        x_graph = x_graph.relu()
+        x_graph = F.dropout(x_graph, p=0.5, training=self.training)
         x_graph = torch.mean(x_graph, dim=0)
 
         return x_text, x_graph
@@ -115,8 +124,10 @@ def train_gcn_model(text_dict: dict, graph_dict: dict):
                 text_encoded = torch.tensor(text_encoded, dtype=torch.float)#.to(device) # TODO: remove in future if not needed
                 # loss1 = F.pairwise_distance(graph_encoded, text_encoded)
                 # loss2 = F.pairwise_distance(graph_encoded_neg, text_encoded)
-                loss1 = 1 - F.cosine_similarity(graph_encoded, text_encoded, dim=0)
-                loss += triplet_loss(text_encoded, graph_encoded, graph_encoded_neg, m=args.triplossmargin) + loss1
+                loss1 = 1 - F.cosine_similarity(graph_encoded, text_encoded, dim=0) # 1 is similar, -1 is dissimilar, value between 0 and 2, with 0 being what we want
+                loss2 = 1 - F.cosine_similarity(graph_encoded_neg, text_encoded, dim=0) # value between 0 and 2, with 2 being what we want
+                loss += triplet_loss(text_encoded, graph_encoded, graph_encoded_neg, m=args.triplossmargin) + 2*loss1 - 2*loss2
+                # loss += triplet_loss(text_encoded, graph_encoded, graph_encoded_neg, m=args.triplossmargin)
                 # loss = F.mse_loss(graph_encoded, text_encoded)
                 if batch == args.batch_size:
                     loss = loss / batch
@@ -125,10 +136,16 @@ def train_gcn_model(text_dict: dict, graph_dict: dict):
                     wandb.log({"loss_per_batch": loss.item()})
                     batch = 0
                     loss = torch.tensor(0.0)#.to(device)
+                    accuracy_val = evaluate_classification(model, dict_3dssg_ada_labels_val, text=dict_of_texts_val) # Accuracy on validation set
+                    wandb.log({"accuracy_val_pos_per_batch": accuracy_val[0],
+                                "accuracy_val_neg_per_batch": accuracy_val[1],
+                                "accuracy_val_per_batch": accuracy_val[2]})
+                    model.train() # Reset model to train mode
                 else:
                     batch += 1
+                
             
-            
+        loss = loss / batch # Get average loss for the last batch
         loss_rounded = round(loss.item(), 10)
         accuracy = evaluate_classification(model, graph_dict, text=text_dict) # Accuracy on train set
         accuracy_val = evaluate_classification(model, dict_3dssg_ada_labels_val, text=dict_of_texts_val) # Accuracy on validation set
@@ -144,10 +161,6 @@ def train_gcn_model(text_dict: dict, graph_dict: dict):
                         "accuracy_val": accuracy_val_rounded[2]})
 
         print("Epoch: " + str(epoch) + ", Loss: " + str(loss_rounded) + ", Accuracy: " + str(accuracy_rounded) + ", Accuracy Val: " + str(accuracy_val_rounded))
-
-        if epoch % 5 == 0 and epoch != 0:
-            torch.save(model.state_dict(), 'text_gcn_epoch_'+str(args.epoch)+'_tripletloss_'+str(args.triplossmargin)+'_smallerdataset_'+str(args.smaller_dataset)+'_hiddenlayers_'+str(args.hidden_layers)+'_batchsize_'+str(args.batch_size)+'.pt')
-
 
     return model
 
@@ -167,9 +180,9 @@ def evaluate_classification(model, _3dssg, text=None, num_eval=10):
 
         accuracies = []
         accuracies_neg = []
-        keys = list(dict_of_texts.keys())
-        for scene_id in keys[0:num_eval]: # Only do num_eval scenes
-            ts = dict_of_texts[scene_id]
+        keys = list(text.keys())
+        for scene_id in keys:
+            ts = text[scene_id]
             for t in ts:
                 graph = _3dssg[scene_id]
                 # Get negative graph
@@ -197,8 +210,9 @@ def evaluate_classification(model, _3dssg, text=None, num_eval=10):
                 text_encoded_neg, graph_encoded_neg = model(t, graph_features_neg, edge_indices_neg, edge_attr_neg, place_node_neg)
                 text_encoded_neg = torch.tensor(text_encoded_neg, dtype=torch.float)
                 # dist_neg = F.pairwise_distance(graph_encoded_neg, text_encoded_neg)
-                dist_neg = 1 - F.cosine_similarity(graph_encoded_neg, text_encoded_neg, dim=0)
+                dist_neg = 1 - F.cosine_similarity(graph_encoded_neg, text_encoded_neg, dim=0) # Value between 0 and 2, with 2 being what we want
                 # print("dist: ", dist.item(), " dist_neg: ", dist_neg.item())
+                wandb.log({"dist": dist.item(), "dist_neg": dist_neg.item()})
 
                 if (dist.item() < 1): accuracies.append(1) # < 1 because cosine similarity middle distance is 1
                 else: accuracies.append(0)
@@ -219,9 +233,14 @@ if __name__ == '__main__':
     parser.add_argument('--hidden_layers', type=int, default=512)
     parser.add_argument('--force_retrain', type=bool, default=False)
     parser.add_argument('--batch_size', type=int, default=32)
+    parser.add_argument('--val_dataset_percent', type=float, default=None)
+    parser.add_argument('--seed', type=int, default=42)
     args = parser.parse_args()
 
+    random.seed(args.seed)
+
     dict_of_texts = None
+    dict_of_texts_train = None
     dict_3dssg_ada_labels = None
 
     # Input to the model is the text directly and the graph
@@ -259,16 +278,29 @@ if __name__ == '__main__':
     if (args.smaller_dataset is not None):
         # Select a subset of the dataset
         keys = list(dict_of_texts.keys())
+
         random.shuffle(keys)
-        keys = keys[0:args.smaller_dataset]
-        validation_keys = keys[-args.smaller_dataset:]
-        dict_of_texts = {k: dict_of_texts[k] for k in keys}
-        dict_3dssg_ada_labels = {k: dict_3dssg_ada_labels[k] for k in keys}
+        keys_train = keys[0:args.smaller_dataset]
+        validation_keys = keys[args.smaller_dataset:] # Use the rest for validation
+        if (args.val_dataset_percent is not None):
+            validation_keys = keys[args.smaller_dataset:args.smaller_dataset+int(len(keys)*args.val_dataset_percent)]
+        dict_of_texts_train = {k: dict_of_texts[k] for k in keys_train}
+        dict_3dssg_ada_labels_train = {k: dict_3dssg_ada_labels[k] for k in keys_train}
         dict_of_texts_val = {k: dict_of_texts[k] for k in validation_keys}
         dict_3dssg_ada_labels_val = {k: dict_3dssg_ada_labels[k] for k in validation_keys}
-        assert(len(dict_of_texts) == len(dict_3dssg_ada_labels))
+        assert(len(dict_of_texts_train) == len(dict_3dssg_ada_labels_train))
         assert(len(dict_of_texts_val) == len(dict_3dssg_ada_labels_val))
-        assert(len(dict_of_texts) == args.smaller_dataset)
+        assert(len(dict_of_texts_val) > 0)
+        assert(len(dict_of_texts_train) == args.smaller_dataset)
+    else:
+        # Use full dataset, validation is 10%, train is 100%
+        keys = list(dict_of_texts.keys())
+        random.shuffle(keys)
+        validation_keys = keys[0:int(len(keys)*0.1)] # Use 10% for validation
+        dict_of_texts_val = {k: dict_of_texts[k] for k in validation_keys}
+        dict_3dssg_ada_labels_val = {k: dict_3dssg_ada_labels[k] for k in validation_keys}
+        assert(len(dict_of_texts_val) == len(dict_3dssg_ada_labels_val))
+
 
     using_triploss = args.triplossmargin != None
     wandb.init(project="text-gcn",
@@ -276,7 +308,7 @@ if __name__ == '__main__':
                 "learning_rate": args.lr,
                 "weight_decay": args.weight_decay,
                 "architecture": "TransformerConv+Linear",
-                "dataset": "ScanScribe_1",
+                "dataset": "ScanScribe_1", # ScanScribe_1 is the cleaned dataset with ada_002 embeddings
                 "epochs": args.epoch,
                 "smaller_dataset": args.smaller_dataset,
                 "triplet_loss": using_triploss,
@@ -287,7 +319,7 @@ if __name__ == '__main__':
             })
 
     if args.force_retrain:
-        model = train_gcn_model(dict_of_texts, dict_3dssg_ada_labels)
+        model = train_gcn_model(dict_of_texts_train, dict_3dssg_ada_labels_train)
         torch.save(model.state_dict(), 'text_gcn_epoch_'+str(args.epoch)+'_tripletloss_'+str(args.triplossmargin)+'_smallerdataset_'+str(args.smaller_dataset)+'_hiddenlayers_'+str(args.hidden_layers)+'_batchsize_'+str(args.batch_size)+'.pt')
     elif os.path.exists('text_gcn_epoch_'+str(args.epoch)+'_tripletloss_'+str(args.triplossmargin)+'_smallerdataset_'+str(args.smaller_dataset)+'_hiddenlayers_'+str(args.hidden_layers)+'_batchsize_'+str(args.batch_size)+'.pt'):
         print('Loading saved model ' + 'text_gcn_epoch_'+str(args.epoch)+'_tripletloss_'+str(args.triplossmargin)+'_smallerdataset_'+str(args.smaller_dataset)+'_hiddenlayers_'+str(args.hidden_layers)+'_batchsize_'+str(args.batch_size)+'.pt')
@@ -295,11 +327,11 @@ if __name__ == '__main__':
         model.load_state_dict(torch.load('text_gcn_epoch_'+str(args.epoch)+'_tripletloss_'+str(args.triplossmargin)+'_smallerdataset_'+str(args.smaller_dataset)+'_hiddenlayers_'+str(args.hidden_layers)+'_batchsize_'+str(args.batch_size)+'.pt'))
         model.eval()
     else:
-        model = train_gcn_model(dict_of_texts, dict_3dssg_ada_labels)
+        model = train_gcn_model(dict_of_texts_train, dict_3dssg_ada_labels_train)
         torch.save(model.state_dict(), 'text_gcn_epoch_'+str(args.epoch)+'_tripletloss_'+str(args.triplossmargin)+'_smallerdataset_'+str(args.smaller_dataset)+'_hiddenlayers_'+str(args.hidden_layers)+'_batchsize_'+str(args.batch_size)+'.pt')
 
     # Evaluate
-    pos, neg, total = evaluate_classification(model, dict_3dssg_ada_labels, text=dict_of_texts)
+    pos, neg, total = evaluate_classification(model, dict_3dssg_ada_labels, text=dict_of_texts_val)
     print("Accuracy on positive pairs: ", pos)
     print("Accuracy on negative pairs: ", neg)
     print("Accuracy on all pairs: ", total)
