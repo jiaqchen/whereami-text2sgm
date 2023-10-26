@@ -24,7 +24,8 @@ class Node:
         self.obj_id = obj_id # TODO: make sure this is unique
         self.label = label
         self.attributes = attributes
-        self.features = self.set_features_ada_002_embedding(label, attributes)
+        # self.features = self.set_features_ada_002_embedding(label, attributes)
+        self.features = self.set_features(label, attributes)
         # if label in embedding_map:
         #     self.label = embedding_map[label]
         # else:
@@ -333,9 +334,14 @@ class GraphLoader:
         return None
 
 class SceneGraph:
-    def __init__(self, type, scene_id, euc_dist_thres=1.0, raw_json=None):
+    def __init__(self, type, scene_id, euc_dist_thres=1.0, raw_json=None, subgraph=False):
         self.type = type
         self.scene_id = scene_id
+
+        if subgraph:
+            self.nodes = None
+            self.edges = None
+            return
 
         if self.type == '3DSSG':
             assert(euc_dist_thres is not None)
@@ -378,6 +384,9 @@ class SceneGraph:
         # Get only node obj_id
         obj_ids = [node.obj_id for node in self.nodes]
 
+        # Make sure all node.obj_ids are unique
+        assert(len(obj_ids) == len(set(obj_ids)))
+
         # Make sure all nodes index from 0, and there are no gaps
         mapping = {old_idx: new_idx for new_idx, old_idx in enumerate(sorted(obj_ids))}
 
@@ -408,6 +417,17 @@ class SceneGraph:
 
         self.nodes.append(place_node)
         return
+    
+    def remove_node(self, node):
+        # Remove node from nodes
+        self.nodes.remove(node)
+        # Remove edges that are connected to node
+        edges_to_remove = []
+        for edge in self.edges:
+            if edge.source == node.obj_id or edge.target == node.obj_id:
+                edges_to_remove.append(edge)
+        for edge in edges_to_remove:
+            self.edges.remove(edge)
 
     def set_nodes(self, nodes):
         self.nodes = nodes
@@ -436,8 +456,22 @@ class SceneGraph:
             targets.append(edge.target)
             features.append(edge.relation)
         return sources, targets, np.array(features)
+    
+    def get_subgraph(self, nodes_to_keep):
+        # Return a new graph that only has the nodes that are in nodes_to_keep, and corresponding edges
+        new_nodes = []
+        new_edges = []
+        for node in self.nodes:
+            if node.obj_id in nodes_to_keep: new_nodes.append(node)
+        for edge in self.edges:
+            # only keep the edge if both source and target are in nodes_to_keep
+            if edge.source in nodes_to_keep and edge.target in nodes_to_keep:
+                new_edges.append(edge)
+        new_graph = SceneGraph(self.type, self.scene_id, subgraph=True)
+        new_graph.set_nodes(new_nodes)
+        new_graph.set_edges(new_edges)
+        return new_graph
 
-        
 # main function
 if __name__ == '__main__':
     scene_graph = SceneGraph('3DSSG', '0a4b8ef6-a83a-21f2-8672-dce34dd0d7ca', euc_dist_thres=1.0)

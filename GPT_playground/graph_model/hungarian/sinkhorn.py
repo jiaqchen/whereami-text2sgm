@@ -6,6 +6,7 @@ import tqdm
 import random
 import numpy as np
 from sklearn.cluster import DBSCAN
+import copy
 
 sys.path.insert(0, '/home/julia/Documents/h_coarse_loc/GPT_playground/graph_model')
 
@@ -50,11 +51,10 @@ def log_optimal_transport(scores: torch.Tensor, alpha: torch.Tensor, iters: int)
     Z = Z - norm  # multiply probabilities by M+N
     return Z
 
-def get_clusters(node_features):
+def get_clusters(node_features, dbscan_eps=0.05):
     clusters = {}
-
     # Use dbscan to get clusters
-    clustering = DBSCAN(eps=args.dbscan_eps, min_samples=1, metric='cosine').fit(node_features) # 0.1 vs 0.05 --> coffee table and office table being in the same cluster
+    clustering = DBSCAN(eps=dbscan_eps, min_samples=1, metric='cosine').fit(node_features) # 0.1 vs 0.05 --> coffee table and office table being in the same cluster
 
     # Iterate through clusters
     for idx, cluster in enumerate(clustering.labels_):
@@ -64,6 +64,23 @@ def get_clusters(node_features):
             clusters[cluster] = [idx]
 
     return clusters
+
+def get_subgraph(output, text_graph, graph_3dssg, eps):
+    # Go through the matching indices for text graph, and remove any nodes from the graph graph that are not relevant
+    graph_node_clusters = get_clusters(graph_3dssg.get_node_features(), dbscan_eps=eps)
+    set_of_matched_in_3dssg = set()
+    for idx, val in enumerate(output['matches0'][0]):
+        if (val != -1):
+            # Check if there are other nodes in the same cluster
+            for cluster in graph_node_clusters:
+                if val in graph_node_clusters[cluster]: 
+                    for c in graph_node_clusters[cluster]:
+                        set_of_matched_in_3dssg.add(c)
+
+    # Get subgraph, only nodes that should exist are indexed by set_of_matched_in_3dssg
+    subgraph = copy.deepcopy(graph_3dssg.get_subgraph(list(set_of_matched_in_3dssg)))
+    subgraph.to_pyg()
+    return text_graph, subgraph
 
 
 def get_optimal_transport_scores(text_node_features, graph_node_features, text_graph, graph_3dssg):
@@ -99,6 +116,8 @@ def get_optimal_transport_scores(text_node_features, graph_node_features, text_g
         'matching_scores1': mscores1,
     }
 
+    return output
+
     ################### iterate with enumerate
     # print("\n\nMatches from text to graph----------------------------------------------------")
     # for idx, val in enumerate(indices0[0]):
@@ -131,7 +150,16 @@ def get_optimal_transport_scores(text_node_features, graph_node_features, text_g
             print(text_graph.get_nodes()[idx].label, " --> ", end="")
             print([graph_3dssg.get_nodes()[node].label for node in matched_list])
     
-    exit()
+
+def optimal_transport_list(text_graph, graph_3dssg):
+    # Get node features
+    text_node_features = text_graph.get_node_features()
+    text_node_features = torch.tensor(text_node_features, dtype=torch.float)
+    graph_node_features = graph_3dssg.get_node_features()
+    graph_node_features = torch.tensor(graph_node_features, dtype=torch.float)
+
+    return get_optimal_transport_scores(text_node_features, graph_node_features, text_graph, graph_3dssg)
+    
 
 def optimal_transport(list_of_graph_text, dict_of_3dssg):
     # shuffle list_of_graph_text
@@ -141,24 +169,15 @@ def optimal_transport(list_of_graph_text, dict_of_3dssg):
         scene_id = text_graph.scene_id
         # Get 3DSSG graph
         graph_3dssg = dict_of_3dssg[scene_id]
-        # Get node features
-        text_node_features = text_graph.get_node_features()
-        text_node_features = torch.tensor(text_node_features)
-        graph_node_features = graph_3dssg.get_node_features()
-        graph_node_features = torch.tensor(graph_node_features)
-
         # Get random 3DSSG graph that isn't scene_id
         scene_ids_3dssg = list(dict_of_3dssg.keys())
         scene_ids_3dssg.remove(scene_id)
         random_scene_id = random.choice(scene_ids_3dssg)
         random_graph_3dssg = dict_of_3dssg[random_scene_id]
-        random_graph_node_features = random_graph_3dssg.get_node_features()
-        random_graph_node_features = torch.tensor(random_graph_node_features)
 
-        get_optimal_transport_scores(text_node_features, graph_node_features, text_graph, graph_3dssg)
-        get_optimal_transport_scores(text_node_features, random_graph_node_features, text_graph, random_graph_3dssg)
+        optimal_transport_list(text_graph, graph_3dssg)
+        optimal_transport_list(text_graph, random_graph_3dssg)
 
-        exit()
 
 
 if __name__ == '__main__':

@@ -40,14 +40,15 @@ class TextGCN(nn.Module): # Not really a GCN, but a GAT?? Using TransformerConv
         # NOTE: We're just going to try a SimpleGAT for now
         self.transformerConv1 = TransformerConv(in_channels=D, out_channels=hidden_channels, 
                                                heads=4, concat=False, 
-                                               dropout=0.5) # TODO: one layer for now
+                                               dropout=0.2) # TODO: one layer for now
         self.transformerConv2 = TransformerConv(in_channels=hidden_channels, out_channels=hidden_channels,
                                                   heads=4, concat=False,
-                                                    dropout=0.5)
+                                                    dropout=0.2)
         self.lin = Linear(hidden_channels, 4096)
         self.lin1 = Linear(4096, D)
 
-
+        self.lin_text = Linear(D, hidden_channels)
+        self.lin_text1 = Linear(hidden_channels, D)
 
     def forward(self, x_text, x_graph, edge_index, edge_attr, place_node):
         # TODO: not doing anything with x_text yet because it's already an embedding from text-embedding-ada-002
@@ -60,7 +61,14 @@ class TextGCN(nn.Module): # Not really a GCN, but a GAT?? Using TransformerConv
         x_graph = self.lin1(x_graph)
         x_graph = x_graph.relu()
         x_graph = F.dropout(x_graph, p=0.5, training=self.training)
+        # Take a weighted average of the nodes of graph to get global graph embedding
         x_graph = torch.mean(x_graph, dim=0)
+
+        x_text = self.lin_text(x_text)
+        x_text = x_text.relu()
+        x_text = self.lin_text1(x_text)
+        x_text = x_text.relu()
+        x_text = F.dropout(x_text, p=0.5, training=self.training)
 
         return x_text, x_graph
 
@@ -74,16 +82,11 @@ def contrastive_loss(output1, output2, label, margin=0.3):
     return loss_contrastive
 
 def triplet_loss(output, pos, neg, m=1.0):
-    # pos_dist = F.pairwise_distance(output, pos, keepdim=True)
-    # neg_dist = F.pairwise_distance(output, neg, keepdim=True)
-    # # print("pos_dist: ", pos_dist, " neg_dist: ", neg_dist)
-    # loss = torch.mean(torch.clamp(pos_dist - neg_dist + m, min=0.0))
-    # return loss
     # Cosine similarity, -1 dissimilar, 1 similar, between 0 and 2 for distance
+    bias_term = 10
     cosine_dis_pos = 1 - F.cosine_similarity(output, pos, dim=0)
     cosine_dis_neg = 1 - F.cosine_similarity(output, neg, dim=0)
-    # print("cosine_dis_pos: ", cosine_dis_pos, " cosine_dis_neg: ", cosine_dis_neg)
-    loss = torch.mean(torch.clamp(cosine_dis_pos - cosine_dis_neg + m, min=0.0))
+    loss = torch.mean(torch.clamp(bias_term*cosine_dis_pos - bias_term*cosine_dis_neg + m, min=0.0))
     return loss
 
 def train_gcn_model(text_dict: dict, graph_dict: dict):
@@ -98,6 +101,8 @@ def train_gcn_model(text_dict: dict, graph_dict: dict):
         for s in scene_ids:
             texts = text_dict[s]
             for t in texts:
+                t = torch.tensor(t, dtype=torch.float)#.to(device)
+
                 graph = graph_dict[s]
                 # Get negative graph
                 graph_keys = list(graph_dict.keys())
@@ -121,14 +126,13 @@ def train_gcn_model(text_dict: dict, graph_dict: dict):
 
                 text_encoded, graph_encoded = model(t, graph_features, edge_indices, edge_attr, place_node)
                 _, graph_encoded_neg = model(t, graph_features_neg, edge_indices_neg, edge_attr_neg, place_node_neg)
+  
                 text_encoded = torch.tensor(text_encoded, dtype=torch.float)#.to(device) # TODO: remove in future if not needed
-                # loss1 = F.pairwise_distance(graph_encoded, text_encoded)
-                # loss2 = F.pairwise_distance(graph_encoded_neg, text_encoded)
-                loss1 = 1 - F.cosine_similarity(graph_encoded, text_encoded, dim=0) # 1 is similar, -1 is dissimilar, value between 0 and 2, with 0 being what we want
-                loss2 = 1 - F.cosine_similarity(graph_encoded_neg, text_encoded, dim=0) # value between 0 and 2, with 2 being what we want
-                loss += triplet_loss(text_encoded, graph_encoded, graph_encoded_neg, m=args.triplossmargin) + 2*loss1 - 2*loss2
-                # loss += triplet_loss(text_encoded, graph_encoded, graph_encoded_neg, m=args.triplossmargin)
-                # loss = F.mse_loss(graph_encoded, text_encoded)
+                dist1 = 1 - F.cosine_similarity(graph_encoded, text_encoded, dim=0) # 1 is similar, -1 is dissimilar, value between 0 and 2, with 0 being what we want PLUS
+                dist2 = 1 - F.cosine_similarity(graph_encoded_neg, text_encoded, dim=0) # value between 0 and 2, with 2 being what we want
+                bias_term = 10
+                loss += triplet_loss(text_encoded, graph_encoded, graph_encoded_neg, m=args.triplossmargin) + bias_term*dist1 - bias_term*dist2
+                
                 if batch == args.batch_size:
                     loss = loss / batch
                     loss.backward()
@@ -184,6 +188,7 @@ def evaluate_classification(model, _3dssg, text=None, num_eval=10):
         for scene_id in keys:
             ts = text[scene_id]
             for t in ts:
+                t = torch.tensor(t, dtype=torch.float)#.to(device)
                 graph = _3dssg[scene_id]
                 # Get negative graph
                 graph_keys = list(_3dssg.keys())
@@ -204,19 +209,16 @@ def evaluate_classification(model, _3dssg, text=None, num_eval=10):
 
                 text_encoded, graph_encoded = model(t, graph_features, edge_indices, edge_attr, place_node)
                 text_encoded = torch.tensor(text_encoded, dtype=torch.float)
-                # dist = F.pairwise_distance(graph_encoded, text_encoded)
                 dist = 1 - F.cosine_similarity(graph_encoded, text_encoded, dim=0)
 
                 text_encoded_neg, graph_encoded_neg = model(t, graph_features_neg, edge_indices_neg, edge_attr_neg, place_node_neg)
                 text_encoded_neg = torch.tensor(text_encoded_neg, dtype=torch.float)
-                # dist_neg = F.pairwise_distance(graph_encoded_neg, text_encoded_neg)
                 dist_neg = 1 - F.cosine_similarity(graph_encoded_neg, text_encoded_neg, dim=0) # Value between 0 and 2, with 2 being what we want
-                # print("dist: ", dist.item(), " dist_neg: ", dist_neg.item())
                 wandb.log({"dist": dist.item(), "dist_neg": dist_neg.item()})
 
-                if (dist.item() < 1): accuracies.append(1) # < 1 because cosine similarity middle distance is 1
+                if (dist.item() < 1): accuracies.append(1) # < 1 because cosine distance middle distance is 1
                 else: accuracies.append(0)
-                if (dist_neg.item() < 1): accuracies_neg.append(0)
+                if (dist_neg.item() <= 1): accuracies_neg.append(0)
                 else: accuracies_neg.append(1)
 
     return sum(accuracies)/len(accuracies), sum(accuracies_neg)/len(accuracies_neg), sum(accuracies+accuracies_neg)/(len(accuracies+accuracies_neg))
@@ -315,7 +317,7 @@ if __name__ == '__main__':
                 "trip_cross_ent": False,
                 "triplet_loss_margin": args.triplossmargin,
                 "hidden_layers": args.hidden_layers,
-                "notes": "taking avg over graph nodes, pairwise distance for accuracy"
+                "notes": "taking avg over graph nodes, 2 linear layers for text"
             })
 
     if args.force_retrain:

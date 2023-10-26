@@ -1,6 +1,7 @@
 ###################################### DATA ######################################
 
 import copy
+import wandb
 import random
 import argparse
 import os
@@ -14,6 +15,7 @@ import torch.nn.functional as F
 from torch_geometric.nn import MessagePassing, GATConv, GCNConv, TransformerConv
 
 from sg_dataloader import SceneGraph
+from hungarian.sinkhorn import get_optimal_transport_scores, optimal_transport_list, get_subgraph
 from utils import print_closest_words, make_cross_graph, mask_node, accuracy_score
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -26,16 +28,16 @@ class BigGNN(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.N = 2 # Number of attention layers, all same sizes now, TODO: need to try different sizes
+        self.N = 1 # Number of attention layers, all same sizes now, TODO: need to try different sizes
         self.TextSelfAttentionLayers = nn.ModuleList()
         self.GraphSelfAttentionLayers = nn.ModuleList()
-        # self.TextCrossAttentionLayers = nn.ModuleList()
-        # self.GraphCrossAttentionLayers = nn.ModuleList()
+        self.TextCrossAttentionLayers = nn.ModuleList()
+        self.GraphCrossAttentionLayers = nn.ModuleList()
         for _ in range(self.N):
             self.TextSelfAttentionLayers.append(SimpleGAT(300, 300, 300))
             self.GraphSelfAttentionLayers.append(SimpleGAT(300, 300, 300))
-            # self.TextCrossAttentionLayers.append(SimpleGAT(300, 300, 300))
-            # self.GraphCrossAttentionLayers.append(SimpleGAT(300, 300, 300))
+            self.TextCrossAttentionLayers.append(SimpleGAT(300, 300, 300))
+            self.GraphCrossAttentionLayers.append(SimpleGAT(300, 300, 300))
 
         # MLP for predicting matching score between 0 and 1
         self.SceneText_MLP = nn.Sequential(
@@ -51,14 +53,12 @@ class BigGNN(nn.Module):
                 edge_index_1, edge_index_2_pos, 
                 edge_attr_1, edge_attr_2_pos, 
                 place_node_1_idx=None, place_node_2_idx_pos=None):
-        assert(place_node_1_idx is not None) # TODO: hacky? or not? only way? maybe it's fine 
-        assert(place_node_2_idx_pos is not None) # to set the place_node_idx every iteration
 
         for i in range(self.N):
             textSelfAttention = self.TextSelfAttentionLayers[i]
             graphSelfAttention = self.GraphSelfAttentionLayers[i]
-            # textCrossAttention = self.TextCrossAttentionLayers[i]
-            # graphCrossAttention = self.GraphCrossAttentionLayers[i]
+            textCrossAttention = self.TextCrossAttentionLayers[i]
+            graphCrossAttention = self.GraphCrossAttentionLayers[i]
 
             ############# Self Attention #############
             
@@ -72,38 +72,36 @@ class BigGNN(nn.Module):
             ############# Cross Attention #############
 
             # Make Cross Attention Graphs
-            # edge_index_1_cross, edge_attr_1_cross = make_cross_graph(x_1.shape, x_2_pos.shape) # First half of x_1_cross should be the original x_1
-            # edge_index_2_cross, edge_attr_2_cross = make_cross_graph(x_2_pos.shape, x_1.shape) # First half of x_2_cross should be the original x_2_pos
+            edge_index_1_cross, edge_attr_1_cross = make_cross_graph(x_1.shape, x_2_pos.shape) # First half of x_1_cross should be the original x_1
+            edge_index_2_cross, edge_attr_2_cross = make_cross_graph(x_2_pos.shape, x_1.shape) # First half of x_2_cross should be the original x_2_pos
 
             # Concatenate x_1 and x_2_pos
-            # x_1_cross = torch.cat((x_1, x_2_pos), dim=0)
-            # x_2_cross = torch.cat((x_2_pos, x_1), dim=0)
+            x_1_cross = torch.cat((x_1, x_2_pos), dim=0)
+            x_2_cross = torch.cat((x_2_pos, x_1), dim=0)
 
             # Cross Attention
-            # x_1_cross = textCrossAttention(x_1_cross, edge_index_1_cross, edge_attr_1_cross)
-            # x_2_cross = graphCrossAttention(x_2_cross, edge_index_2_cross, edge_attr_2_cross)
+            x_1_cross = textCrossAttention(x_1_cross, edge_index_1_cross, edge_attr_1_cross)
+            x_2_cross = graphCrossAttention(x_2_cross, edge_index_2_cross, edge_attr_2_cross)
 
             # Get the first len_x_1 nodes from x_1_cross
-            # x_1 = x_1_cross[:len_x_1] # TODO: Oh, this could be weird....... need to make sure the nodes and indices line up here
-            # x_2_pos = x_2_cross[:len_x_2]
+            x_1 = x_1_cross[:len_x_1] # TODO: Oh, this could be weird....... need to make sure the nodes and indices line up here
+            x_2_pos = x_2_cross[:len_x_2]
 
             # Batch Norm, am I using the Batch Norm correctly?
             x_1 = F.normalize(x_1, p=2, dim=1)
             x_2_pos = F.normalize(x_2_pos, p=2, dim=1)
+        
+        # Global average pooling
+        x_1_pooled = torch.mean(x_1, dim=0)
+        x_2_pos_pooled = torch.mean(x_2_pos, dim=0)
 
-        # Find place nodes
-        place_node_x1 = x_1[place_node_1_idx]
-        place_node_x2 = x_2_pos[place_node_2_idx_pos]
-
-        # MLP Layer, input place_node
-        out_matching = self.SceneText_MLP(torch.cat((place_node_x1, place_node_x2), dim=0))
-        return x_1, x_2_pos, out_matching
+        return x_1_pooled, x_2_pos_pooled
 
 class SimpleGAT(MessagePassing):
     # Simple one layer GATConv
     def __init__(self, in_channels_node, in_channels_edge, out_channels):
         super(SimpleGAT, self).__init__(aggr='add')  # "add" aggregation
-        self.TransformerConv_nodes = TransformerConv(in_channels_node, out_channels, heads=128, concat=False, dropout=0.7)
+        self.TransformerConv_nodes = TransformerConv(in_channels_node, out_channels, heads=8, concat=False, dropout=0.2)
         # self.GATConv_nodes = GATConv(in_channels_node, out_channels, heads=1, dropout=0.7)
         # self.GCNConv_nodes = GCNConv(in_channels_node, out_channels)
 
@@ -111,15 +109,9 @@ class SimpleGAT(MessagePassing):
         x = self.TransformerConv_nodes(x, edge_index)
         # x = self.GATConv_nodes(x, edge_index)
 
-        # layer norm
-        x = F.layer_norm(x, x.shape)
-        # relu
         x = F.relu(x)
         # Dropout
         # x = F.dropout(x, p=0.5, training=self.training)
-
-        # Normalize
-        x = F.normalize(x, p=2, dim=1)
         return x
 
 # class SimpleGCN(MessagePassing):
@@ -151,19 +143,26 @@ def train_dummy_big_gnn(list_of_graph1, list_of_graph2_dict):
     # Define model
     model = BigGNN() # TODO: input output channels are hardcoded now, need to figure that out
     # Adam
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001, weight_decay=5e-4)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
     # assert(len(list_of_graph1) == len(list_of_graph2)) # TODO: not true anymore
-    batch_size = 128
+    batch_size = args.batch_size
     for epoch in range(args.epoch):
         # for graph1, graph2_pos in zip(list_of_graph1, list_of_graph2):
         batch_hard_coded = 0
-        epoch_loss = 0
         for graph1 in list_of_graph1:
+            loss = 0
             graph2_pos = list_of_graph2_dict[graph1.scene_id]
+            # Turn graph2_pos, and graph2_neg into subgraphs that Hungarian match the nodes in graph1
             graph2_keys = list(list_of_graph2_dict.keys())
             graph2_keys.remove(graph1.scene_id)
             graph2_neg = list_of_graph2_dict[random.choice(graph2_keys)] # Negative example
+
+            output_pos = optimal_transport_list(graph1, graph2_pos)
+            output_neg = optimal_transport_list(graph1, graph2_neg)
+
+            _, graph2_pos = get_subgraph(output_pos, graph1, graph2_pos, args.eps) # for now graph1 doesn't change
+            _, graph2_neg = get_subgraph(output_neg, graph1, graph2_neg, args.eps) 
 
             # Nodes
             x_1 = torch.tensor(graph1.get_node_features(), dtype=torch.float)            # Node features
@@ -209,43 +208,41 @@ def train_dummy_big_gnn(list_of_graph1, list_of_graph2_dict):
             optimizer.zero_grad() # Clear gradients. # Must call before loss.backward() to avoid accumulating gradients from previous batches
 
             # TODO: OCT 9 2023 The input should just be a graph pair, with the pos and neg encoded within the loss function
-            out1_pos, out2_pos, out_matching_pos = model(x_1, x_2_pos, 
+            x_1_pos, x_2_pos = model(x_1, x_2_pos, 
                                             edge_index_1, edge_index_2_pos, 
                                             edge_attr_1, edge_attr_2_pos,
                                             place_node_1_idx, place_node_2_idx_pos) # Perform a single forward pass.
-            out1_neg, out2_neg, out_matching_neg = model(x_1, x_2_neg,
+            x_1_neg, x_2_neg = model(x_1, x_2_neg,
                                             edge_index_1, edge_index_2_neg,
                                             edge_attr_1, edge_attr_2_neg,
                                             place_node_1_idx, place_node_2_idx_neg) # Perform a single forward pass.
-            
-            # Cosine similarity loss
-            # loss1 = F.cosine_similarity(out1, x_1, dim=1) # Compute the loss.
-            # loss2 = F.cosine_similarity(out2, x_2_pos, dim=1) # Compute the loss.
+
+            # Cosine distance
+            loss1 = 1 - F.cosine_similarity(x_1_pos, x_2_pos, dim=0) # Compute the loss. force to 0
+            loss2 = 1 - F.cosine_similarity(x_1_neg, x_2_neg, dim=0) # Compute the loss. force to 2
 
             # MSE loss with cosine similarity
             # loss1 = F.mse_loss(loss1, torch.tensor([1.0], dtype=torch.float)) # Compute the loss.
             # loss2 = F.mse_loss(loss2, torch.tensor([1.0], dtype=torch.float)) # Compute the loss.
 
-            # loss3 = F.mse_loss(out1[place_node_1_idx], out2[place_node_2_idx_pos]) # TODO: loss3 is distance vector, but could also try cosine similarity, or after MLP
             # loss = ((1 - torch.cat((loss1, loss2), dim=0)).sum()) + loss3
-            m = 0.9 # lower bound of dissimilar
-            loss3_pos = F.mse_loss(out_matching_pos, torch.tensor([1.0], dtype=torch.float))
-            loss3_neg = F.mse_loss(out_matching_neg, torch.tensor([0.0], dtype=torch.float))
-            loss = torch.add(loss3_pos, loss3_neg)
-            # epoch_loss = torch.add(epoch_loss, loss)
+            loss += loss1.sum() - loss2.sum() + 2
 
-            # if (batch_hard_coded % batch_size == 0):
-            # epoch_loss = torch.div(epoch_loss, batch_size)
-            loss.backward() # Derive gradients.
-            optimizer.step() # Update parameters based on gradients.
-            # epoch_loss = 0
-            
-            # batch_hard_coded += 1
+            if (batch_hard_coded % batch_size == 0):
+                # print first 10 values of the outputs x_1_pos, x_2_pos, x_1_neg, x_2_neg
+
+                loss.backward() # Derive gradients.
+                optimizer.step() # Update parameters based on gradients.
+
+                wandb.log({"loss_per_batch": loss.item()})
+                loss = 0
+                batch_hard_coded = 0
+            else:
+                batch_hard_coded += 1
 
         # Print loss
         if epoch % 10 == 0:
-            print(f'Epoch: {epoch:03d}, Loss: {loss:.4f}', end='  ')
-        # print("Epoch loss: ", epoch_loss)
+            wandb.log({"loss_per_epoch": loss.item()})
 
         # # Check accuracy
         # if epoch % 5 == 0 and epoch != 0:
@@ -260,7 +257,7 @@ def train_dummy_big_gnn(list_of_graph1, list_of_graph2_dict):
         # Check accuracy of classification
         if epoch % 10 == 0:
             acc = evaluate_classification(model)
-            print("Classification accuracy: ", acc)
+            wandb.log({"accuracy": acc})
 
     return model
 
@@ -396,15 +393,10 @@ def evaluate_classification(model):
         try:
             scene_graph_human_eval = SceneGraph('human+GPT', s, raw_json=raw_json)
         except Exception as e:
-            # print(e)
-            # print(traceback.print_exc())
-            # print("Error with human+GPT graph generation in classification evaluation ", s)
             continue
         try:
             scene_graph_3dssg_eval = SceneGraph('3DSSG', s, euc_dist_thres=1.0)
         except Exception as e:
-            # print(e)
-            # print("Error with graph generation with 3DSSG in classification evaluation ", s)
             continue
         try:
             # random s in scene_id
@@ -418,14 +410,11 @@ def evaluate_classification(model):
             acc = evaluate_model_classification(model, scene_graph_human_eval, scene_graph_3dssg_eval, 1)
             acc_neg = evaluate_model_classification(model, scene_graph_human_eval, scene_graph_3dssg_eval_neg, 0)
         except Exception as e:
-            # print(e)
-            # print(traceback.print_exc())
-            # print("Error with scene evaluation ", s)
             continue
         accuracies.append(acc)
         accuracies.append(acc_neg)
         i += 1
-    # print("Classification accuracies: ", accuracies)
+
     return sum(accuracies) / len(accuracies)
 
 def evaluate_model_classification(model, scene_graph_human, scene_graph_3dssg, label):
@@ -479,9 +468,12 @@ def evaluate_model_classification(model, scene_graph_human, scene_graph_3dssg, l
             return out_matching < 0.5
     
 if __name__ == '__main__':
+    random.seed(0)
     parser = argparse.ArgumentParser()
     parser.add_argument('--epoch', type=int, default=20)
     parser.add_argument('--text_source', type=str, default='human+GPT', help='human+GPT or ScanScribe3DSSG+GPT') # ScanScribe3DSSG+GPT is GPT annotated from SG, and then reparsed back into a JSON lawl
+    parser.add_argument('--eps', type=float, default=0.05, help='epsilon for Hungarian matching')
+    parser.add_argument('--batch_size', type=int, default=1, help='batch size for training')
     args = parser.parse_args()
     assert(args.text_source == 'human+GPT' or args.text_source == 'ScanScribe3DSSG+GPT')
 
@@ -583,6 +575,29 @@ if __name__ == '__main__':
     if (list_of_graph_text is None or len(list_of_graph_3dssg_dict_room_label) == 0):
         print("Error loading data")
         exit()
+
+    # Go through both and make sure none of them have a "place" node
+    for graph in list_of_graph_3dssg_dict_room_label.values():
+        for node in graph.get_nodes():
+            if node.node_type == "place":
+                # Remove the node
+                graph.remove_node(node)
+                break
+        
+    for graph in list_of_graph_text:
+        for node in graph.get_nodes():
+            if node.node_type == "place":
+                # Remove the node
+                graph.remove_node(node)
+                break
+
+    wandb.init(project="simplegnn",
+            config={
+                "architecture": "self attention cross attention",
+                "dataset": "ScanScribe og", # ScanScribe_1 is the cleaned dataset with ada_002 embeddings
+                "epochs": args.epoch,
+                "batch_size": args.batch_size,
+            })
 
     model = train_dummy_big_gnn(list_of_graph_text, list_of_graph_3dssg_dict_room_label)
 
