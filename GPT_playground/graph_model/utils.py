@@ -20,7 +20,7 @@ def load_text_dataset(filename):
         with open("../scripts/hugging_face/" + filename, "r") as f:
             scanscribe = json.load(f)
         
-        scan_ids = set()
+        scan_ids = scanscribe.keys()
         dict_of_texts = scanscribe
     elif filename == "scanscribe.json":
         # open scanscribe.json
@@ -39,6 +39,25 @@ def load_text_dataset(filename):
         print("Invalid filename")
         return
     return scan_ids, dict_of_texts
+
+# Inputs are scene graphs
+def verify_subgraph(text_graph, subgraph, output: dict, clusters: dict):
+    print("verifying subgraph--------------------------")
+    for idx, val in enumerate(output['matches0'][0]):
+        matched_list = []
+        if (val != -1):
+            for cluster in clusters:
+                if val in clusters[cluster]: matched_list = clusters[cluster]
+        
+        
+            matched = [subgraph.get_nodes()[n].label for n in matched_list]
+            print(text_graph.get_nodes()[idx].label, " --> ", end="")
+            print(matched)
+    # Print labels in subgraph
+    for n in subgraph.get_nodes():
+        print(n.label, end=" ")
+    print("--------------------------")
+
 
 ################################ GENERAL UTILS ################################
 def txt_to_json(text):

@@ -13,7 +13,7 @@ sys.path.insert(0, '/home/julia/Documents/h_coarse_loc/GPT_playground/graph_mode
 from sg_dataloader import SceneGraph
 
 config = {
-    'match_threshold': 0.01,
+    'match_threshold': 0.3,
     'iters': 1000,
     'feature_dim': 1536,
 }
@@ -80,7 +80,8 @@ def get_subgraph(output, text_graph, graph_3dssg, eps):
     # Get subgraph, only nodes that should exist are indexed by set_of_matched_in_3dssg
     subgraph = copy.deepcopy(graph_3dssg.get_subgraph(list(set_of_matched_in_3dssg)))
     subgraph.to_pyg()
-    return text_graph, subgraph
+    graph_node_clusters = get_clusters(subgraph.get_node_features(), dbscan_eps=eps)
+    return text_graph, subgraph, graph_node_clusters
 
 
 def get_optimal_transport_scores(text_node_features, graph_node_features, text_graph, graph_3dssg):
@@ -149,9 +150,11 @@ def get_optimal_transport_scores(text_node_features, graph_node_features, text_g
             # Print matches
             print(text_graph.get_nodes()[idx].label, " --> ", end="")
             print([graph_3dssg.get_nodes()[node].label for node in matched_list])
+
+    # return output
     
 
-def optimal_transport_list(text_graph, graph_3dssg):
+def optimal_transport_between_two_graphs(text_graph, graph_3dssg):
     # Get node features
     text_node_features = text_graph.get_node_features()
     text_node_features = torch.tensor(text_node_features, dtype=torch.float)
@@ -175,8 +178,8 @@ def optimal_transport(list_of_graph_text, dict_of_3dssg):
         random_scene_id = random.choice(scene_ids_3dssg)
         random_graph_3dssg = dict_of_3dssg[random_scene_id]
 
-        optimal_transport_list(text_graph, graph_3dssg)
-        optimal_transport_list(text_graph, random_graph_3dssg)
+        optimal_transport_between_two_graphs(text_graph, graph_3dssg)
+        optimal_transport_between_two_graphs(text_graph, random_graph_3dssg)
 
 
 

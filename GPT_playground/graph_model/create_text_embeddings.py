@@ -61,43 +61,41 @@ def tokenize_text(filename):
 if __name__ == '__main__':
     ## check_tokens()
     ############################### Create embeddings for text dataset
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument('--filename', type=str, default=None)
-    # args = parser.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--filename', type=str, default=None)
+    args = parser.parse_args()
 
     # dict_of_embeddings = tokenize_text(args.filename)
     # torch.save(dict_of_embeddings, 'human+GPT_cleaned_text_embedding_ada_002.pt')
-    ##############################################
 
-    ############################################### Check similarity for openai embeddings
-    # stringa = "blue big couch"
-    # stringb = "blue chair"
-    # stringc = "red couch"
+# ################################ Take user input to create a smaller dataset
+#     scans_ids, dict_of_texts = load_text_dataset(args.filename)
+#     dict_selection = {}
+#     for key in dict_of_texts:
+#         # Go through all the examples in each dict_of_texts[key]
+#         user_input = input("Exit overall?")
+#         if user_input == 'exit':
+#             break
+#         else:
+#             pass
+#         for text in dict_of_texts[key]:
+#             print("Text: ", text)
+        
+#             user_input = input("Add to dict_selection? (y/n): ")
+#             if user_input == 'y':
+#                 if key not in dict_selection:
+#                     dict_selection[key] = []
+#                 dict_selection[key].append(text)
+#             elif user_input == 'q':
+#                 break
+#             else:
+#                 continue
 
-    # embeddinga = create_embedding(stringa)
-    # embeddingb = create_embedding(stringb)
-    # embeddingc = create_embedding(stringc)
+#     # Save dict_selection as a json in the ../scripts/hugging_face/ folder
+#     import json
+#     with open('../scripts/hugging_face/scanscribe_2.json', 'w') as fp:
+#         json.dump(dict_selection, fp)
 
-    # embeddinga = np.asarray(embeddinga)
-    # embeddingb = np.asarray(embeddingb)
-    # embeddingc = np.asarray(embeddingc)
-
-    # # euc distance
-    # print("Euclidean distance between a and b: ", np.linalg.norm(embeddinga - embeddingb))
-    # print("Euclidean distance between a and c: ", np.linalg.norm(embeddinga - embeddingc))
-    # print("Euclidean distance between b and c: ", np.linalg.norm(embeddingb - embeddingc))
-    ###############################################
-
-    ############################################### Check similarity for openai embeddings
-    stringa = "window"
-    stringb = "window"
-
-    embeddinga = create_embedding(stringa)
-    embeddingb = create_embedding(stringb)
-
-    embeddinga = np.asarray(embeddinga)
-    embeddingb = np.asarray(embeddingb)
-
-    # euc distance
-    print("Euclidean distance between a and b: ", np.linalg.norm(embeddinga - embeddingb))
-    ###############################################
+#     # Also save as a torch file
+#     torch.save(dict_selection, '../scripts/hugging_face/scanscribe_2.pt')
+# ################################ Take user input to create a smaller dataset

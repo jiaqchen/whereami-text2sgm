@@ -319,7 +319,7 @@ if __name__ == '__main__':
                 "hidden_layers": args.hidden_layers,
                 "notes": "taking avg over graph nodes, 2 linear layers for text"
             })
-
+        
     if args.force_retrain:
         model = train_gcn_model(dict_of_texts_train, dict_3dssg_ada_labels_train)
         torch.save(model.state_dict(), 'text_gcn_epoch_'+str(args.epoch)+'_tripletloss_'+str(args.triplossmargin)+'_smallerdataset_'+str(args.smaller_dataset)+'_hiddenlayers_'+str(args.hidden_layers)+'_batchsize_'+str(args.batch_size)+'.pt')
