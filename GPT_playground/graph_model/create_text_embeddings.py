@@ -4,6 +4,7 @@ import openai
 import argparse
 import numpy as np
 import torch
+import json
 import os
 import tiktoken
 import tqdm
@@ -55,7 +56,6 @@ def tokenize_text(filename):
         for text in dict_of_texts[scan_id]:
             embedding = create_embedding(text)
             dict_of_embeddings[scan_id].append(embedding)
-
     return dict_of_embeddings
 
 if __name__ == '__main__':
@@ -65,37 +65,39 @@ if __name__ == '__main__':
     parser.add_argument('--filename', type=str, default=None)
     args = parser.parse_args()
 
+    embeddings = tokenize_text(args.filename)
+
+    # save
+    with open('../scripts/hugging_face/scanscribe_2_embeddings.json', 'w') as fp:
+        json.dump(embeddings, fp)
+    
     # dict_of_embeddings = tokenize_text(args.filename)
     # torch.save(dict_of_embeddings, 'human+GPT_cleaned_text_embedding_ada_002.pt')
 
 # ################################ Take user input to create a smaller dataset
-#     scans_ids, dict_of_texts = load_text_dataset(args.filename)
-#     dict_selection = {}
-#     for key in dict_of_texts:
-#         # Go through all the examples in each dict_of_texts[key]
-#         user_input = input("Exit overall?")
-#         if user_input == 'exit':
-#             break
-#         else:
-#             pass
-#         for text in dict_of_texts[key]:
-#             print("Text: ", text)
+    # scans_ids, dict_of_texts = load_text_dataset(args.filename)
+    # dict_selection = {}
+    # for key in dict_of_texts:
+    #     # Go through all the examples in each dict_of_texts[key]
+    #     user_input = input("Exit overall?")
+    #     if user_input == 'exit':
+    #         break
+    #     else:
+    #         pass
+    #     for text in dict_of_texts[key]:
+    #         print("Text: ", text)
         
-#             user_input = input("Add to dict_selection? (y/n): ")
-#             if user_input == 'y':
-#                 if key not in dict_selection:
-#                     dict_selection[key] = []
-#                 dict_selection[key].append(text)
-#             elif user_input == 'q':
-#                 break
-#             else:
-#                 continue
+    #         user_input = input("Add to dict_selection? (y/n): ")
+    #         if user_input == 'y':
+    #             if key not in dict_selection:
+    #                 dict_selection[key] = []
+    #             dict_selection[key].append(text)
+    #         elif user_input == 'q':
+    #             break
+    #         else:
+    #             continue
 
-#     # Save dict_selection as a json in the ../scripts/hugging_face/ folder
-#     import json
-#     with open('../scripts/hugging_face/scanscribe_2.json', 'w') as fp:
-#         json.dump(dict_selection, fp)
-
-#     # Also save as a torch file
-#     torch.save(dict_selection, '../scripts/hugging_face/scanscribe_2.pt')
+    # # Save dict_selection as a json in the ../scripts/hugging_face/ folder
+    # with open('../scripts/hugging_face/scanscribe_2.json', 'w') as fp:
+    #     json.dump(dict_selection, fp)
 # ################################ Take user input to create a smaller dataset

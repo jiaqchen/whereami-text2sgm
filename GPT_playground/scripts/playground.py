@@ -3,6 +3,7 @@ import json
 import os
 from tqdm import tqdm
 import argparse
+import time
 
 openai.api_key_path = "../api_key.txt"
 
@@ -42,17 +43,55 @@ def extract_content(completion):
     content = completion.choices[0]['message']['content']
     return content
 
+def save_completion(completion, scan_id, scanscribe_json_gpt_folder):
+    # Check if scan_id folder exists and create file size of folder + 1
+    if (not os.path.exists(scanscribe_json_gpt_folder + scan_id)):
+        os.mkdir(scanscribe_json_gpt_folder + scan_id)
+    file_name = None
+    if (os.path.exists(scanscribe_json_gpt_folder + scan_id)):
+        file_size = len(os.listdir(scanscribe_json_gpt_folder + scan_id))
+        file_name = str(file_size) + '.json'
+
+    # Save completion to the output file
+    if (file_name == None):
+        exit()
+    with open(scanscribe_json_gpt_folder + scan_id + '/' + file_name, 'w') as outfile:
+        json.dump(completion, outfile)
 
 if __name__ == "__main__":
     # Parse arguments
     parser = argparse.ArgumentParser()
     parser.add_argument('--datasource', type=str, default='3dssg', help='data source, can be 3dssg, scanscribe, or human')
+    parser.add_argument('--filename', type=str, default=None, help='filename of the data source, should be in a json format with a dictionary of scene_id keys to list of descriptions for that scene')
+    parser.add_argument('--scanscribe_folder', type=str, default=None)
     args = parser.parse_args()
     assert(args.datasource != None)
     
-    if (args.datasource == 'scanscribe'):
+    # If args.datasource is equal to scanscribe_* using regex
+    if (args.datasource[0:11] == 'scanscribe_'):
+        with open('./hugging_face/' + str(args.filename), 'r') as f:
+            scanscribe = json.load(f)
+
+        for key in tqdm(scanscribe):
+            descriptions = scanscribe[key]
+            len_descriptions = len(descriptions)
+            i = 0
+            while i < len_descriptions:
+                description = descriptions[i]
+                try:
+                    completion = send_completion(description)
+                except:
+                    print("Error with API call " + str(key) + " and description " + str(description))
+                    time.sleep(5)
+                    continue
+                completion = extract_content(completion)
+                save_completion(completion, key, args.scanscribe_folder)
+                i += 1
+                time.sleep(1)
+        
+    elif (args.datasource == 'scanscribe'):
         # Unpack scanscribe.json
-        with open('./hugging_face/scanscribe.json', 'r') as f:
+        with open('./hugging_face/' + str(args.filename), 'r') as f:
             scanscribe = json.load(f)
         
         # Iterate through scanscribe using tqdm
@@ -78,19 +117,7 @@ if __name__ == "__main__":
                 continue
             completion = extract_content(completion)
 
-            # Check if scan_id folder exists and create file size of folder + 1
-            if (not os.path.exists('./scanscribe_json_gpt/' + scan_id)):
-                os.mkdir('./scanscribe_json_gpt/' + scan_id)
-            file_name = None
-            if (os.path.exists('./scanscribe_json_gpt/' + scan_id)):
-                file_size = len(os.listdir('./scanscribe_json_gpt/' + scan_id))
-                file_name = str(file_size) + '.json'
 
-            # Save completion to the output file
-            if (file_name == None):
-                exit()
-            with open('./scanscribe_json_gpt/' + scan_id + '/' + file_name, 'w') as outfile:
-                json.dump(completion, outfile, indent=4)
             
             i += 1
 

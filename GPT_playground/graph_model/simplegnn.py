@@ -123,6 +123,12 @@ class SimpleGAT(MessagePassing):
 ###################################### TRAIN ######################################
 
 def train_dummy_big_gnn(list_of_graph1, list_of_graph2_dict):
+    # first half of list_of_graph1 is the positive examples # SWAP BETWEEN SPLIT V NO SPLIT
+    # list_of_graph1_pos = list_of_graph1[0:len(list_of_graph1)//2]
+    # list_of_graph2_neg = []
+    # for g in list_of_graph1[len(list_of_graph1)//2:]:
+        # list_of_graph2_neg.append(g.scene_id)
+        
     # Define model
     model = BigGNN() # TODO: input output channels are hardcoded now, need to figure that out
     # Adam
@@ -134,6 +140,7 @@ def train_dummy_big_gnn(list_of_graph1, list_of_graph2_dict):
         epoch_loss = 0
         # for graph1, graph2_pos in zip(list_of_graph1, list_of_graph2):
         batch_hard_coded = 0
+        # for graph1 in list_of_graph1_pos: # SWAP BETWEEN SPLIT V NO SPLIT
         for graph1 in list_of_graph1:
             loss = 0
             graph2_pos = list_of_graph2_dict[graph1.scene_id]
@@ -141,6 +148,7 @@ def train_dummy_big_gnn(list_of_graph1, list_of_graph2_dict):
             graph2_keys = list(list_of_graph2_dict.keys())
             graph2_keys.remove(graph1.scene_id)
             graph2_neg = list_of_graph2_dict[random.choice(graph2_keys)] # Negative example
+            # graph2_neg = list_of_graph2_dict[random.choice(list_of_graph2_neg)] # Negative example # SWAP BETWEEN SPLIT V NO SPLIT
 
             output_pos = optimal_transport_between_two_graphs(graph1, graph2_pos)
             output_neg = optimal_transport_between_two_graphs(graph1, graph2_neg)
@@ -207,7 +215,8 @@ def train_dummy_big_gnn(list_of_graph1, list_of_graph2_dict):
             loss3 = F.mse_loss(x_1_pos, x_2_neg)
             loss4 = (1-match_prob_pos) + match_prob_neg
 
-            loss += loss1.sum() - loss2.sum() + 1 + loss3.sum() + loss4
+            loss += loss1.sum() - loss2.sum() + 2 + loss4# + loss3.sum()
+            # loss += loss4
             wandb.log({"loss1": loss1.sum().item(),
                         "loss2": loss2.sum().item(),
                         "loss3": loss3.sum().item(),
@@ -228,213 +237,87 @@ def train_dummy_big_gnn(list_of_graph1, list_of_graph2_dict):
                 batch_hard_coded += 1
 
         # Print loss
-        if epoch % 3 == 0:
+        if epoch % 1 == 0:
             wandb.log({"loss_per_epoch": epoch_loss.item()})
 
         # Check accuracy of classification
-        # if epoch % 10 == 0:
-        #     acc = evaluate_classification(model)
-        #     wandb.log({"accuracy": acc})
+        if epoch % 10 == 0:
+            acc, _ = evaluate_model(model, list_of_graph1, list_of_graph2_dict, out_of=4, top_k=1)
+            wandb.log({"accuracy_per_10_epochs": acc})
 
     return model
 
-def evaluate_nodes(model):
-    # Go through all human scene graphs and get a score for each.
-    scene_ids = os.listdir('../output_clean')
-    avg_accs = []
-    avg_acc1s = []
-    avg_acc2s = []
-    i = 0
-    for s in scene_ids:
-        # raw json is the file inside the folder
-        raw_json = os.listdir('../output_clean/' + s)[0]
-        raw_json = '../output_clean/' + s + '/' + raw_json + '/0_gpt_clean.json'
-        try:
-            scene_graph_human_eval = SceneGraph('human+GPT', s, raw_json=raw_json)
-        except Exception as e:
-            print(e)
-            print(traceback.print_exc())
-            print("Error with graph generation with human ", s)
-            continue
-        try:
-            scene_graph_3dssg_eval = SceneGraph('3DSSG', s, euc_dist_thres=1.0)
-        except Exception as e:
-            # print(e)
-            print("Error with graph generation with 3DSSG ", s)
-            continue
-
-        try:
-            acc1, acc2, avg_acc, out1_vector, out2_vector, x_1_vector, x_2_vector = evaluate_model(model, scene_graph_human_eval, scene_graph_3dssg_eval)
-        except Exception as e:
-            # print(e)
-            print(traceback.print_exc())
-            print("Error with scene evaluation ", s)
-            continue
-        avg_accs.append(avg_acc)
-        avg_acc1s.append(acc1)
-        avg_acc2s.append(acc2)
-
-        # every 5 iterations, show closest
-        if i % 5 == 0:
-            print("closest words for x_1")
-            print_closest_words(out1_vector, x_1_vector, first_n=x_1_vector.shape[0])
-            print("closest words for x_2_pos")
-            print_closest_words(out2_vector, x_2_vector, first_n=x_2_vector.shape[0])
-        
-        i += 1
-
-    # Print overall results
-    print("Average accuracy weighted by number of nodes masked: ", sum(avg_accs) / len(avg_accs))
-    print("Average accuracy weighted by number of nodes masked for x_1 (from ScanScribe): ", sum(avg_acc1s) / len(avg_acc1s))
-    print("Average accuracy weighted by number of nodes masked for x_2_pos (from 3DSSG): ", sum(avg_acc2s) / len(avg_acc2s))
-
-def evaluate_model(model, scene_graph_human, scene_graph_3dssg):
-    # Evaluate model on another graph pair
+def evaluate_model(model, list_of_graph1, list_of_graph2_dict, out_of=100, top_k=10):
     model.eval()
-    with torch.no_grad():
-        # Process graph such that there are no gaps in indices and all nodes index from 0
-        scene_graph_human.to_pyg()
-        scene_graph_3dssg.to_pyg()
-
-        # Make Hierarchical node that has an edge connecting to all other nodes
-        scene_graph_human.add_place_node() # TODO: this method should return the place_node already
-        scene_graph_3dssg.add_place_node()
-
-        # Get x_1 and x_2_pos
-        x_1 = torch.tensor(scene_graph_human.get_node_features(), dtype=torch.float)    # Node features
-        x_2_pos = torch.tensor(scene_graph_3dssg.get_node_features(), dtype=torch.float)    # Node features
-
-        # Get edge_index_1 and edge_index_2_pos
-        sources_1, targets_1, features_1 = scene_graph_human.get_edge_s_t_feats()
-        edge_index_1 = torch.tensor([sources_1, targets_1], dtype=torch.long)
-        edge_attr_1 = torch.tensor(features_1, dtype=torch.float)
-
-        source_2_pos, targets_2_pos, features_2_pos = scene_graph_3dssg.get_edge_s_t_feats()
-        edge_index_2_pos = torch.tensor([source_2_pos, targets_2_pos], dtype=torch.long)
-        edge_attr_2_pos = torch.tensor(features_2_pos, dtype=torch.float)
-
-        # Mask node
-        x_1_masked, x_1_masked_rows = mask_node(x_1, p=0.1)
-        x_2_masked, x_2_masked_rows = mask_node(x_2_pos, p=0.1)
-
-        # Get Place Node Index
-        _, place_node_1_idx = scene_graph_human.get_place_node_idx()
-        _, place_node_2_idx_pos = scene_graph_3dssg.get_place_node_idx()
-
-        # Make Cross Graph
-        edge_index_1_cross, edge_attr_1_cross = make_cross_graph(x_1_masked.shape, x_2_masked.shape)
-        edge_index_2_cross, edge_attr_2_cross = make_cross_graph(x_2_masked.shape, x_1_masked.shape)
-
-        # Reset some values in the model
-        model.edge_index_1_cross, model.edge_attr_1_cross = edge_index_1_cross, edge_attr_1_cross
-        model.edge_index_2_cross, model.edge_attr_2_cross = edge_index_2_cross, edge_attr_2_cross
-
-        # Get model output
-        out1, out2, out_matching = model(x_1_masked, x_2_masked, edge_index_1, edge_index_2_pos, edge_attr_1, edge_attr_2_pos,
-                                         place_node_1_idx, place_node_2_idx_pos)
-
-        out1_vector = out1.detach().numpy()
-        out2_vector = out2.detach().numpy()
-        x_1_vector = x_1.detach().numpy()
-        x_2_vector = x_2_pos.detach().numpy()
-        # Use the masks
-        out1_vector = out1_vector[x_1_masked_rows] # TODO: I think this means we are only calculating accuracy on the masked nodes, so that's good right?
-        # print("out1_vector shape", out1_vector.shape)
-        out2_vector = out2_vector[x_2_masked_rows]
-        x_1_vector = x_1_vector[x_1_masked_rows]
-        x_2_vector = x_2_vector[x_2_masked_rows]
-
-        # Print Accuracy of just the masked nodes
-        acc1 = accuracy_score(out1_vector, x_1_vector)
-        acc2 = accuracy_score(out2_vector, x_2_vector)
-        avg_acc = (acc1 * x_1_vector.shape[0] + acc2 * x_2_vector.shape[0]) / (x_1_vector.shape[0] + x_2_vector.shape[0])
-        return acc1, acc2, avg_acc, out1_vector, out2_vector, x_1_vector, x_2_vector
-
-def evaluate_classification(model):
-# Go through all human scene graphs and get a score for each.
-    scene_ids = os.listdir('../output_clean')
     accuracies = []
-    i = 0
-    for s in scene_ids:
-        # raw json is the file inside the folder
-        raw_json = os.listdir('../output_clean/' + s)[0]
-        raw_json = '../output_clean/' + s + '/' + raw_json + '/0_gpt_clean.json'
-        try:
-            scene_graph_human_eval = SceneGraph('human+GPT', s, raw_json=raw_json)
-        except Exception as e:
-            continue
-        try:
-            scene_graph_3dssg_eval = SceneGraph('3DSSG', s, euc_dist_thres=1.0)
-        except Exception as e:
-            continue
-        try:
-            # random s in scene_id
-            s_rand = scene_ids.copy()
-            s_rand.remove(s)
-            s_rand = random.choice(s_rand)
-            scene_graph_3dssg_eval_neg = SceneGraph('3DSSG', s_rand, euc_dist_thres=1.0)
-        except:
-            continue
-        try:
-            acc = evaluate_model_classification(model, scene_graph_human_eval, scene_graph_3dssg_eval, 1)
-            acc_neg = evaluate_model_classification(model, scene_graph_human_eval, scene_graph_3dssg_eval_neg, 0)
-        except Exception as e:
-            continue
-        accuracies.append(acc)
-        accuracies.append(acc_neg)
-        i += 1
+    for graph1 in list_of_graph1:
+        graph2_pos = list_of_graph2_dict[graph1.scene_id]
+        # Turn graph2_pos, and graph2_neg into subgraphs that Hungarian match the nodes in graph1
+        graph2_keys = list(list_of_graph2_dict.keys())
+        graph2_keys.remove(graph1.scene_id)
+        samples = random.sample(graph2_keys, out_of-1)
+        graph2_negs = [list_of_graph2_dict[s] for s in samples] # Negative example
+        graph2_negs.append(graph2_pos) # +1 more sample
 
-    return sum(accuracies) / len(accuracies)
+        matching_probs = []
+        for graph2_neg in graph2_negs:
+            output_neg = optimal_transport_between_two_graphs(graph1, graph2_neg)
+            
+            if not all([x == -1 for x in output_neg['matches0'][0]]):
+                _, graph2_neg, graph2_neg_clusters = get_subgraph(output_neg, graph1, graph2_neg, args.eps)
 
-def evaluate_model_classification(model, scene_graph_human, scene_graph_3dssg, label):
-    # Evaluate model on another graph pair
-    model.eval()
-    with torch.no_grad():
-        # Process graph such that there are no gaps in indices and all nodes index from 0
-        scene_graph_human.to_pyg()
-        scene_graph_3dssg.to_pyg()
+            # Verify subgraph that it's correct
+            # verify_subgraph(graph1, graph2_pos, output_pos, graph2_pos_clusters)
+            # verify_subgraph(graph1, graph2_neg, output_neg, graph2_neg_clusters)
 
-        # Make Hierarchical node that has an edge connecting to all other nodes
-        scene_graph_human.add_place_node() # TODO: adding a place node is find for human+GPT graph I think
-        scene_graph_3dssg.add_place_node() # TODO: we can reuse the 3dssg graphs, so need to reuse those 
-                                           #       here instead of making new and adding place node
+            # Nodes
+            x_1 = torch.tensor(graph1.get_node_features(), dtype=torch.float)            # Node features
+            x_2_neg = torch.tensor(graph2_neg.get_node_features(), dtype=torch.float)    # Node features
 
-        # Get x_1 and x_2_pos
-        x_1 = torch.tensor(scene_graph_human.get_node_features(), dtype=torch.float)    # Node features
-        x_2_pos = torch.tensor(scene_graph_3dssg.get_node_features(), dtype=torch.float)    # Node features
+            min_nodes = 3
+            if x_1.shape[0] <= min_nodes or x_2_neg.shape[0] <= min_nodes:
+                continue
 
-        # Get edge_index_1 and edge_index_2_pos
-        sources_1, targets_1, features_1 = scene_graph_human.get_edge_s_t_feats()
-        edge_index_1 = torch.tensor([sources_1, targets_1], dtype=torch.long)
-        edge_attr_1 = torch.tensor(features_1, dtype=torch.float)
+            # Edges
+            sources_1, targets_1, features_1 = graph1.get_edge_s_t_feats()
+            assert(len(sources_1) == len(targets_1) == len(features_1))
+            edge_index_1 = torch.tensor([sources_1, targets_1], dtype=torch.long)
+            edge_attr_1 = torch.tensor(features_1, dtype=torch.float)
 
-        source_2_pos, targets_2_pos, features_2_pos = scene_graph_3dssg.get_edge_s_t_feats()
-        edge_index_2_pos = torch.tensor([source_2_pos, targets_2_pos], dtype=torch.long)
-        edge_attr_2_pos = torch.tensor(features_2_pos, dtype=torch.float)
+            source_2_neg, targets_2_neg, features_2_neg = graph2_neg.get_edge_s_t_feats()
+            assert(len(source_2_neg) == len(targets_2_neg) == len(features_2_neg))
+            edge_index_2_neg = torch.tensor([source_2_neg, targets_2_neg], dtype=torch.long)
+            edge_attr_2_neg = torch.tensor(features_2_neg, dtype=torch.float)
 
-        # Mask node
-        # x_1_masked, x_1_masked_rows = mask_node(x_1, p=0.1)
-        # x_2_masked, x_2_masked_rows = mask_node(x_2_pos, p=0.1)
+            # Get Place Node Index
+            _, place_node_1_idx = graph1.get_place_node_idx()
+            _, place_node_2_idx_neg = graph2_neg.get_place_node_idx()
 
-        # Get Place Node Index
-        _, place_node_1_idx = scene_graph_human.get_place_node_idx()
-        _, place_node_2_idx_pos = scene_graph_3dssg.get_place_node_idx()
+            x_1_neg, x_2_neg, match_prob_neg = model(x_1, x_2_neg,
+                                            edge_index_1, edge_index_2_neg,
+                                            edge_attr_1, edge_attr_2_neg,
+                                            place_node_1_idx, place_node_2_idx_neg)
 
-        # Make Cross Graph
-        # edge_index_1_cross, edge_attr_1_cross = make_cross_graph(x_1_masked.shape, x_2_masked.shape)
-        # edge_index_2_cross, edge_attr_2_cross = make_cross_graph(x_2_masked.shape, x_1_masked.shape)
+            # Cosine distance
+            loss2 = 1 - F.cosine_similarity(x_1_neg, x_2_neg, dim=0) # Compute the loss. force to 2
 
-        # Reset some values in the model
-        # model.edge_index_1_cross, model.edge_attr_1_cross = edge_index_1_cross, edge_attr_1_cross
-        # model.edge_index_2_cross, model.edge_attr_2_cross = edge_index_2_cross, edge_attr_2_cross
+            matching_probs.append(match_prob_neg.item())
+        
+        # Get top k
+        top_k_idx = sorted(range(len(matching_probs)), key=lambda i: matching_probs[i])[-top_k:]
 
-        # Get model output
-        _, _, out_matching = model(x_1, x_2_pos, edge_index_1, edge_index_2_pos, edge_attr_1, edge_attr_2_pos,
-                                         place_node_1_idx, place_node_2_idx_pos)
-        if label == 1:
-            return out_matching > 0.5
+        # Get top k scene_ids from graph2_negs
+        top_k_scene_ids = []
+        for idx in top_k_idx:
+            top_k_scene_ids.append(graph2_negs[idx].scene_id)
+
+        # Get accuracy
+        if graph1.scene_id in top_k_scene_ids:
+            accuracies.append(1)
         else:
-            return out_matching < 0.5
+            accuracies.append(0)
+
+    return sum(accuracies) / len(accuracies), len(accuracies)
     
 def train_test_split(list_of_text_graph, test_size):
     random.shuffle(list_of_text_graph)
@@ -462,6 +345,9 @@ if __name__ == '__main__':
     parser.add_argument('--mode', type=str, default='online', help='online or offline or disabled')
     parser.add_argument('--traintestsplit', type=float, default=0.5, help='train test split for the dataset')
     parser.add_argument('--seed', type=int, default=0, help='seed for random')
+    parser.add_argument('--one_datapoint', type=int, default=None)
+    parser.add_argument('--top_k', type=int, default=10, help='top k accuracy')
+    parser.add_argument('--out_of', type=int, default=20, help='out of how many to test accuracy')
     args = parser.parse_args()
     random.seed(args.seed)
     assert(args.text_source == 'human+GPT' or args.text_source == 'ScanScribe3DSSG+GPT')
@@ -593,12 +479,32 @@ if __name__ == '__main__':
     list_of_graph_text_train, list_of_graph_text_test = train_test_split(list_of_graph_text, test_size=1-args.traintestsplit)
     list_of_graph_3dssg_dict_room_label_train, list_of_graph_3dssg_dict_room_label_test = split_3dssg(list_of_graph_text_train, list_of_graph_text_test, list_of_graph_3dssg_dict_room_label)
 
+    if (args.one_datapoint is not None):
+        new_list_of_graph_text_train = []
+        new_list_of_graph_3dssg_dict_room_label_train = {}
+        current_scenes = set()
+        for i in range(len(list_of_graph_text_train)):
+            if list_of_graph_text_train[i].scene_id not in current_scenes:
+                current_scenes.add(list_of_graph_text_train[i].scene_id)
+                new_list_of_graph_text_train.append(list_of_graph_text_train[i])
+                new_list_of_graph_3dssg_dict_room_label_train[list_of_graph_text_train[i].scene_id] = list_of_graph_3dssg_dict_room_label_train[list_of_graph_text_train[i].scene_id]
+
+            if (len(new_list_of_graph_text_train) == args.one_datapoint):
+                break
+
+        list_of_graph_text_train = new_list_of_graph_text_train
+        print("Length of list_of_graph_text_train: ", len(list_of_graph_text_train))
+        list_of_graph_3dssg_dict_room_label_train = new_list_of_graph_3dssg_dict_room_label_train
+    
     model = train_dummy_big_gnn(list_of_graph_text_train, list_of_graph_3dssg_dict_room_label_train)
 
     # Evaluate
-    final_accuracy = evaluate_classification(model)
+    out_of = 20
+    assert(len(list_of_graph_text_test) >= out_of)
+    final_accuracy, num_datapoints = evaluate_model(model, list_of_graph_text_test, list_of_graph_3dssg_dict_room_label_test, out_of=out_of, top_k=10)
     # evaluate_nodes(model)
     print("Final accuracy: ", final_accuracy)
+    print("Number of datapoints for calculating accuracy: ", num_datapoints)
 
 
 

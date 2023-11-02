@@ -3,68 +3,48 @@ import json
 import re
 import os
 from tqdm import tqdm
+import argparse
 
-def txt_to_json(text, file_path):
+def txt_to_json(text):
     # remove \n and change \" to "
-    text = text.replace('\n', '')
-    text = text.replace('\"', '"')
+    text = text.replace("\\n", '')
+    text = text.replace('\\"', '"')
     # use regex to change extra spaces to be 1 space
     text = re.sub(' +', ' ', text)
-
-    # print(text)
+    # trim " at beginning and end
+    text = text.strip('"')
+    print(text)
     # string to json
     json_data = json.loads(text)
 
-    # print(json_data)
-    # write json to file
-    with open(file_path, 'w') as outfile:
-        json.dump(json_data, outfile, indent=4)
+    return json_data
 
 # main
 if __name__ == "__main__":
-    # Get folders in ../output_raw
-    scan_folders = os.listdir('../output_raw')
+    # with open("./txt_to_json.json", "r") as f:
+    #     test_text = f.read()
+    #     test_text = str(test_text)
+    # json_data = txt_to_json(test_text)
+    # with open("./txt_to_json_reformatted.json", "w") as f:
+    #     json.dump(json_data, f, indent=4)
+    # Parse arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', type=str, default=None)
+    args = parser.parse_args()
+
+    scan_folders = os.listdir('./' + str(args.dataset))
     scan_folders.sort()
 
     # Loop through folders
     for folder in tqdm(scan_folders):
-        # Make folder in ../output_clean, if not exists
-        os.makedirs('../output_clean/' + folder, exist_ok=True)
+        # for file in folder
+        files = os.listdir('./' + str(args.dataset) + '/' + folder)
+        for json_file in files:
+            filepath = './' + str(args.dataset) + '/' + folder + '/' + json_file
 
-        # Get folders in folder
-        gifs_folder = os.listdir('../output_raw/' + folder)
-        gifs_folder.sort()
+            with open(filepath) as f:
+                json_format = txt_to_json(f.read())
 
-        for gifs_f in gifs_folder:
-            # Make folder in ../output_clean, if not exists
-            os.makedirs('../output_clean/' + folder + '/' + gifs_f, exist_ok=True)
-
-            # Get files in folder
-            files = os.listdir('../output_raw/' + folder + '/' + gifs_f)
-            files.sort()
-
-            for file in files:
-                # Get file path
-                file_path = '../output_raw/' + folder + '/' + gifs_f + '/' + file
-
-                # Open file
-                with open(file_path) as f:
-                    # Read as json
-                    text = json.load(f)
-                    # Get "content"
-                    text = text['choices'][0]['message']['content']
-                    # if text has '```'
-                    if '```' in text:
-                        print('found ```, ' + file_path)
-                        # Only take json between ``` ```
-                        text = text.split('```')[1]
-                        # Remove 'json' in beginning
-                        text = text[4:]
-
-                # Convert text to json
-                # file = file.replace('raw', 'clean')
-                try:
-                    txt_to_json(text, '../output_clean/' + folder + '/' + gifs_f + '/' + file)
-                except:
-                    print('Error with ' + file_path)
-                    continue
+            filepath = filepath.replace(".json", "_reformatted.json")
+            with open(filepath, 'w') as f:
+                json.dump(json_format, f, indent=4)

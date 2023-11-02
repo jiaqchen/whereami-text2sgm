@@ -16,7 +16,7 @@ import math
 ################################ DATASET LOAD ################################
 
 def load_text_dataset(filename):
-    if filename == "scanscribe_1.json":
+    if filename[0:11] == "scanscribe_":
         with open("../scripts/hugging_face/" + filename, "r") as f:
             scanscribe = json.load(f)
         
