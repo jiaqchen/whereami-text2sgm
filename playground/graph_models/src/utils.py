@@ -41,18 +41,18 @@ def load_text_dataset(filename):
     return scan_ids, dict_of_texts
 
 # Inputs are scene graphs
-def verify_subgraph(text_graph, subgraph, output: dict, clusters: dict):
+def verify_subgraph(text_graph, subgraph, og_graph, output: dict, clusters: dict):
     print("verifying subgraph--------------------------")
     for idx, val in enumerate(output['matches0'][0]):
         matched_list = []
         if (val != -1):
             for cluster in clusters:
                 if val in clusters[cluster]: matched_list = clusters[cluster]
-        
-        
-            matched = [subgraph.get_nodes()[n].label for n in matched_list]
+            matched = [og_graph.get_nodes()[n].label for n in matched_list]
             print(text_graph.get_nodes()[idx].label, " --> ", end="")
             print(matched)
+        else:
+            print(text_graph.get_nodes()[idx].label, " --> ")
     # Print labels in subgraph
     for n in subgraph.get_nodes():
         print(n.label, end=" ")
@@ -131,6 +131,9 @@ def print_word_distances(word1, word2):
 
 def print_word_similarity(word1, word2):
     print("Similarity between " + word1 + " and " + word2 + ": " + str(nlp(word1).similarity(nlp(word2))))
+
+def word_similarity(word1, word2):
+    return nlp(word1).similarity(nlp(word2))
 
 ################################ TORCH GRAPH UTILS ################################
 

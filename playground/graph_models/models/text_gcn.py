@@ -17,8 +17,8 @@ import torch.nn.functional as F
 from torch_geometric.nn import MessagePassing, GATConv, GCNConv, TransformerConv
 import clip
 
-from sg_dataloader import SceneGraph
-from utils import print_closest_words, make_cross_graph, mask_node, accuracy_score, load_text_dataset
+from playground.graph_model.data_processing.sg_dataloader import SceneGraph
+from playground.graph_model.src.utils import print_closest_words, make_cross_graph, mask_node, accuracy_score, load_text_dataset
 
 ###################################### MODEL ######################################
 
@@ -91,6 +91,9 @@ def triplet_loss(output, pos, neg, m=1.0):
     return loss
 
 def train_gcn_model(text_dict: dict, graph_dict: dict):
+    # first half of the data should be for positive pairs, second half for negative pairs
+    # text_id_pos = list(text_dict.keys())[0:int(len(text_dict)/2)]
+    # graph_id_neg = list(graph_dict.keys())[int(len(graph_dict)/2):]
 
     model = TextGCN(args.hidden_layers)#.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay) # TODO: no weight decay for now
@@ -111,6 +114,7 @@ def train_gcn_model(text_dict: dict, graph_dict: dict):
                 graph_keys = list(graph_dict.keys())
                 graph_keys.remove(s)
                 neg_key = random.choice(graph_keys)
+                # neg_key = random.choice(graph_id_neg)
                 graph_neg = graph_dict[neg_key]
 
                 graph_features = torch.tensor(graph.get_node_features(), dtype=torch.float)#.to(device)

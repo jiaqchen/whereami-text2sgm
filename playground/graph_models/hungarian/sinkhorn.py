@@ -8,9 +8,8 @@ import numpy as np
 from sklearn.cluster import DBSCAN
 import copy
 
-sys.path.insert(0, '/home/julia/Documents/h_coarse_loc/GPT_playground/graph_model')
-
-from sg_dataloader import SceneGraph
+sys.path.append('/home/julia/Documents/h_coarse_loc/playground/graph_model')
+from playground.graph_model.data_processing.sg_dataloader import SceneGraph
 
 config = {
     'match_threshold': 0.3,
@@ -69,6 +68,7 @@ def get_subgraph(output, text_graph, graph_3dssg, eps):
     # Go through the matching indices for text graph, and remove any nodes from the graph graph that are not relevant
     graph_node_clusters = get_clusters(graph_3dssg.get_node_features(), dbscan_eps=eps)
     set_of_matched_in_3dssg = set()
+
     for idx, val in enumerate(output['matches0'][0]):
         if (val != -1):
             # Check if there are other nodes in the same cluster
@@ -80,11 +80,11 @@ def get_subgraph(output, text_graph, graph_3dssg, eps):
     # Get subgraph, only nodes that should exist are indexed by set_of_matched_in_3dssg
     subgraph = copy.deepcopy(graph_3dssg.get_subgraph(list(set_of_matched_in_3dssg)))
     subgraph.to_pyg()
-    graph_node_clusters = get_clusters(subgraph.get_node_features(), dbscan_eps=eps)
+    # graph_node_clusters = get_clusters(subgraph.get_node_features(), dbscan_eps=eps)
     return text_graph, subgraph, graph_node_clusters
 
 
-def get_optimal_transport_scores(text_node_features, graph_node_features, text_graph, graph_3dssg):
+def get_optimal_transport_scores(text_node_features, graph_node_features, text_graph, graph_3dssg, sinkhorn_thr):
     # Calculate score with einsum
     scores = torch.einsum('ij,kj->ik', text_node_features, graph_node_features)
     scores = scores / (config['feature_dim'])**.5
@@ -105,7 +105,7 @@ def get_optimal_transport_scores(text_node_features, graph_node_features, text_g
     zero = scores.new_tensor(0)
     mscores0 = torch.where(mutual0, max0.values.exp(), zero)
     mscores1 = torch.where(mutual1, mscores0.gather(1, indices1), zero)
-    valid0 = mutual0 & (mscores0 > config['match_threshold'])
+    valid0 = mutual0 & (mscores0 > sinkhorn_thr)
     valid1 = mutual1 & valid0.gather(1, indices1)
     indices0 = torch.where(valid0, indices0, indices0.new_tensor(-1))
     indices1 = torch.where(valid1, indices1, indices1.new_tensor(-1))
@@ -119,55 +119,56 @@ def get_optimal_transport_scores(text_node_features, graph_node_features, text_g
 
     return output
 
-    ################### iterate with enumerate
-    # print("\n\nMatches from text to graph----------------------------------------------------")
+    # ################### iterate with enumerate
+    # # print("\n\nMatches from text to graph----------------------------------------------------")
+    # # for idx, val in enumerate(indices0[0]):
+    # #     if (val != -1):
+    # #         print(text_graph.get_nodes()[idx].label, " --> ", graph_3dssg.get_nodes()[val].label)
+    # # print("\n\nMatches from graph to text----------------------------------------------------")
+    # # for idx, val in enumerate(indices1[0]):
+    # #     if (val != -1):
+    # #         print(graph_3dssg.get_nodes()[idx].label, " --> ", text_graph.get_nodes()[val].label)
+
+    # ################### print all nodes
+    # print("\n\nText nodes---------------------------------------------------------------------")
+    # for node in text_graph.get_nodes():
+    #     print(node.label, end=", ")
+    # print("\n\nGraph nodes--------------------------------------------------------------------")
+    # for node in graph_3dssg.get_nodes():
+    #     print(node.label, end=", ")
+    # graph_node_clusters = get_clusters(graph_node_features)
+
+    # # Print text to graph matches where nodes in same cluster are also considered matched
+    # print("\n\nMatches from text to graph with clustering----------------------------------------------------")
+    # print(indices0[0])
     # for idx, val in enumerate(indices0[0]):
+    #     matched_list = []
     #     if (val != -1):
-    #         print(text_graph.get_nodes()[idx].label, " --> ", graph_3dssg.get_nodes()[val].label)
-    # print("\n\nMatches from graph to text----------------------------------------------------")
-    # for idx, val in enumerate(indices1[0]):
-    #     if (val != -1):
-    #         print(graph_3dssg.get_nodes()[idx].label, " --> ", text_graph.get_nodes()[val].label)
+    #         # Check if there are other nodes in the same cluster
+    #         for cluster in graph_node_clusters:
+    #             if val in graph_node_clusters[cluster]: matched_list = graph_node_clusters[cluster]
 
-    ################### print all nodes
-    print("\n\nText nodes---------------------------------------------------------------------")
-    for node in text_graph.get_nodes():
-        print(node.label, end=", ")
-    print("\n\nGraph nodes--------------------------------------------------------------------")
-    for node in graph_3dssg.get_nodes():
-        print(node.label, end=", ")
-    graph_node_clusters = get_clusters(graph_node_features)
-
-    # Print text to graph matches where nodes in same cluster are also considered matched
-    print("\n\nMatches from text to graph with clustering----------------------------------------------------")
-    for idx, val in enumerate(indices0[0]):
-        matched_list = []
-        if (val != -1):
-            # Check if there are other nodes in the same cluster
-            for cluster in graph_node_clusters:
-                if val in graph_node_clusters[cluster]: matched_list = graph_node_clusters[cluster]
-
-            # Print matches
-            print(text_graph.get_nodes()[idx].label, " --> ", end="")
-            print([graph_3dssg.get_nodes()[node].label for node in matched_list])
+    #         # Print matches
+    #         print(text_graph.get_nodes()[idx].label, " --> ", end="")
+    #         print([graph_3dssg.get_nodes()[node].label for node in matched_list])
 
     # return output
     
 
-def optimal_transport_between_two_graphs(text_graph, graph_3dssg):
+def optimal_transport_between_two_graphs(text_graph, graph_3dssg, sinkhorn_thr):
     # Get node features
     text_node_features = text_graph.get_node_features()
     text_node_features = torch.tensor(text_node_features, dtype=torch.float)
     graph_node_features = graph_3dssg.get_node_features()
     graph_node_features = torch.tensor(graph_node_features, dtype=torch.float)
 
-    return get_optimal_transport_scores(text_node_features, graph_node_features, text_graph, graph_3dssg)
+    return get_optimal_transport_scores(text_node_features, graph_node_features, text_graph, graph_3dssg, sinkhorn_thr)
     
 
-def optimal_transport(list_of_graph_text, dict_of_3dssg):
+def optimal_transport(list_of_graph_text, dict_of_3dssg, sinkhorn_thr):
     # shuffle list_of_graph_text
     random.shuffle(list_of_graph_text)
-    for text_graph in tqdm.tqdm(list_of_graph_text):
+    for text_graph in list_of_graph_text:
         # Get scene id
         scene_id = text_graph.scene_id
         # Get 3DSSG graph
@@ -178,8 +179,10 @@ def optimal_transport(list_of_graph_text, dict_of_3dssg):
         random_scene_id = random.choice(scene_ids_3dssg)
         random_graph_3dssg = dict_of_3dssg[random_scene_id]
 
-        optimal_transport_between_two_graphs(text_graph, graph_3dssg)
-        optimal_transport_between_two_graphs(text_graph, random_graph_3dssg)
+        print("############### POSITIVE MATCH ###############")
+        optimal_transport_between_two_graphs(text_graph, graph_3dssg, sinkhorn_thr)
+        print("############### NEGATIVE MATCH ###############")
+        optimal_transport_between_two_graphs(text_graph, random_graph_3dssg, sinkhorn_thr)
 
 
 
@@ -189,6 +192,7 @@ if __name__ == '__main__':
     parser.add_argument('--text_source', type=str, default='scanscribe')
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--dbscan_eps', type=float, default=0.05)
+    parser.add_argument('--sinkhorn_thr', type=float, default=0.3)
     args = parser.parse_args()
     random.seed(args.seed)
     bin_score = torch.nn.Parameter(torch.tensor(1.))
@@ -196,15 +200,19 @@ if __name__ == '__main__':
     # Load graphs
     list_of_graph_text = None
     list_of_graph_3dssg = None
+    # list_of_graph_text_path = 'list_of_graph_scanscribe_gpt_noplacenode_noattrib_ada_002.pt'
+    # list_of_graph_3dssg_path = 'list_of_graph_3dssg_noplacenode_noattrib_ada_002.pt'
+    list_of_graph_text_path = '../list_of_graph_text_label_vec_no_attrib_no_room_node.pt'
+    list_of_graph_3dssg_path = '../list_of_graph_3dssg_dict_label_vec_no_attrib_no_room_node.pt'
     # Load scanscribe as graphs with node features in word2vec embedding space
     if (args.text_source == 'scanscribe'):
         print("Using scanscribe --> text graph dataset")
         scene_ids = os.listdir('../../scripts/scanscribe_json_gpt')
         
         # TODO: Try adding attributes to the features and saving another graph checkpoint
-        if os.path.exists('list_of_graph_scanscribe_gpt_noplacenode_noattrib_ada_002.pt'):
+        if os.path.exists(list_of_graph_text_path):
             print("Using ScanScribe presaved text source")
-            list_of_graph_text = torch.load('list_of_graph_scanscribe_gpt_noplacenode_noattrib_ada_002.pt')
+            list_of_graph_text = torch.load(list_of_graph_text_path)
         else:
             # Go through folders
             list_of_graph_text = []
@@ -232,12 +240,12 @@ if __name__ == '__main__':
                     list_of_graph_text.append(scene_graph_scanscribe_gpt)
                 
             # Save list to file to access later
-            torch.save(list_of_graph_text, 'list_of_graph_scanscribe_gpt_noplacenode_noattrib_ada_002.pt')
+            torch.save(list_of_graph_text, list_of_graph_text_path)
 
     # We must have a list_of_graph_3dssg_noplacenode_noattrib_ada_002
-    if os.path.exists('list_of_graph_3dssg_noplacenode_noattrib_ada_002.pt'):
+    if os.path.exists(list_of_graph_3dssg_path):
         print("Using 3DSSG presaved scene graphs")
-        list_of_graph_3dssg = torch.load('list_of_graph_3dssg_noplacenode_noattrib_ada_002.pt') 
+        list_of_graph_3dssg = torch.load(list_of_graph_3dssg_path) 
     else: # Load 3DSSG graphs as dict
         scene_ids_3dssg = os.listdir('../../../data/3DSSG/3RScan')
         list_of_graph_3dssg = {}
@@ -252,7 +260,7 @@ if __name__ == '__main__':
             except:
                 continue
             list_of_graph_3dssg[scene_id] = scene_graph_3dssg
-        torch.save(list_of_graph_3dssg, 'list_of_graph_3dssg_noplacenode_noattrib_ada_002.pt')
+        torch.save(list_of_graph_3dssg, list_of_graph_3dssg_path)
 
     # Match nodes using optimal transport
-    optimal_transport(list_of_graph_text, list_of_graph_3dssg)
+    optimal_transport(list_of_graph_text, list_of_graph_3dssg, args.sinkhorn_thr)

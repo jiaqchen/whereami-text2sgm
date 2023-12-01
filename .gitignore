@@ -1,5 +1,24 @@
 data/*
-*/__pycache__/*
-data_website/client/data/*
-data_website/server/static/*
+**/__pycache__/*
+**/deprecated/*
+**/openai_api_key.txt
+website_data_labeling/client/data/*
+website_data_labeling/server/static/*
+
+playground/graph_models/data_checkpoints/*
+playground/graph_models/model_checkpoints/*
+playground/graph_models/wandb/*
+
+cuda_11.7.0_515.43.04_linux.run
+data_distribution/features_only/
+data_distribution/sampled_data_pairs/
+data_distribution/w_attrib/
+playground/graph_models/DATA_graph.txt
+playground/graph_models/DATA_text.txt
+playground/graph_models/hungarian/list_of_graph_3dssg_noplacenode_ada_002.pt
+playground/graph_models/hungarian/list_of_graph_3dssg_noplacenode_noattrib_ada_002.pt
+playground/graph_models/hungarian/list_of_graph_scanscribe_gpt_noplacenode_ada_002.pt
+playground/graph_models/hungarian/list_of_graph_scanscribe_gpt_noplacenode_noattrib_ada_002.pt
+torch_cuda_sanity_check.py
+website_data_labeling/
 

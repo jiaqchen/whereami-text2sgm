@@ -5,7 +5,7 @@ from tqdm import tqdm
 import argparse
 import time
 
-openai.api_key_path = "../api_key.txt"
+openai.api_key_path = "../openai_api_key.txt"
 
 def send_completion(text, file_path=None):
     # system_to_send = "You will only return valid JSON with the same format below, \

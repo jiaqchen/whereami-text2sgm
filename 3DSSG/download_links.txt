@@ -1,5 +1,0 @@
-3RScan Reconstructions:
-https://gist.github.com/WaldJohannaU/55f5e35992ea91157b789b15eac4d432
-
-3DSSG:
-https://campar.in.tum.de/public_datasets/3DSSG/3DSSG.zip 

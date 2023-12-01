@@ -5,8 +5,8 @@ import json
 import numpy as np
 import pandas as pd
 
-from utils import noun_in_list_of_nouns, vectorize_word, txt_to_json
-from create_text_embeddings import create_embedding
+from playground.graph_model.src.utils import noun_in_list_of_nouns, vectorize_word, txt_to_json
+from data.scanscribe.scanscribe_scripts.create_text_embeddings import create_embedding
 
 graph_origin_type = ['3DSSG', 'human+GPT']
 
@@ -67,6 +67,10 @@ class Node:
         label = label.lower()
         label = label.split(' ')
         label = label[-1]
+        return label
+    
+    def set_features_without_attributes(self, label):
+        label = self.vectorize_label(label)
         return label
 
     def set_features(self, label, attributes):

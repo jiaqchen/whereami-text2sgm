@@ -17,8 +17,8 @@ import torch.nn.functional as F
 from torch_geometric.nn import MessagePassing, GATConv, GCNConv, TransformerConv
 import clip
 
-from sg_dataloader import SceneGraph
-from utils import print_closest_words, make_cross_graph, mask_node, accuracy_score, load_text_dataset
+from playground.graph_model.data_processing.sg_dataloader import SceneGraph
+from playground.graph_model.src.utils import print_closest_words, make_cross_graph, mask_node, accuracy_score, load_text_dataset
 
 ###################################### MODEL ######################################
 

@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from utils import noun_in_list_of_nouns, vectorize_word, recover_word, print_closest_words, make_cross_graph, mask_node
+from playground.graph_model.src.utils import noun_in_list_of_nouns, vectorize_word, recover_word, print_closest_words, make_cross_graph, mask_node
 
 ####################### SPACY UTILS #######################
 
