@@ -4,9 +4,12 @@ import os
 import json
 import numpy as np
 import pandas as pd
+import sys
 
-from playground.graph_model.src.utils import noun_in_list_of_nouns, vectorize_word, txt_to_json
-from data.scanscribe.scanscribe_scripts.create_text_embeddings import create_embedding
+sys.path.insert(0, '/home/julia/Documents/h_coarse_loc/playground')
+sys.path.insert(1, '/home/julia/Documents/h_coarse_loc/data/scanscribe/scanscribe_scripts')
+from graph_models.src.utils import noun_in_list_of_nouns, vectorize_word, txt_to_json
+from create_text_embeddings import create_embedding
 
 graph_origin_type = ['3DSSG', 'human+GPT']
 
@@ -274,7 +277,7 @@ class GraphLoader:
             graph_adj_list[obj['id']] = {'label': obj['label'], 'adj_to': []}
 
         # Add edges to graph
-        relationships_path = os.path.join(os.path.dirname(__file__), '../../data/3DSSG/relationships.json')
+        relationships_path = os.path.join(os.path.dirname(__file__), '/home/julia/Documents/h_coarse_loc/data/3DSSG/relationships.json')
         relationships = {}
         with open(relationships_path, 'r') as f:
             relationships = json.load(f)
