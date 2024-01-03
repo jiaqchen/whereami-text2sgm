@@ -8,7 +8,7 @@ import argparse
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
-from graph_loader_3dssg_utils import get_obj_distance, bounding_box, plot_relation
+from graph_loader_utils import get_obj_distance, bounding_box, plot_relation, get_ada, get_word2vec
 
 # Parameters for creating scene graphs
 dist_thr = 1.0
@@ -112,8 +112,74 @@ def process_objects_and_relationships(dir_to_objects, scene_id, plot=False, dist
         
     return objects_in_scan, graph_adj
 
-# Save everything as its own dictionary object
-all_scenes = process_scenes('/home/julia/Documents/h_coarse_loc/data/3DSSG')
+def add_edge_list(all_scenes):
+    hada = {}
+    hw2v = {}
+    for sceneid in tqdm(all_scenes):
+        relationships = relationships_dict[sceneid]['relationships']
+        obj1_list = []
+        obj2_list = []
+        relation_list = []
+        relation_word2vec_list = []
+        relation_ada_list = []
+        dist_list = []
+        for rel in relationships:
+            obj1_list.append(rel[0])
+            obj2_list.append(rel[1])
+            relation_list.append(rel[3])
+            relation_word2vec_list.append(get_word2vec(rel[3], hw2v))
+            relation_ada_list.append(get_ada(rel[3], hada))
+            dist_list.append(get_obj_distance(str(rel[0]), str(rel[1]), all_scenes[sceneid]['objects']))
+        assert(len(obj1_list) == len(obj2_list) == len(relation_list) == len(dist_list))
+        all_scenes[sceneid]['edge_lists'] = {}
+        all_scenes[sceneid]['edge_lists']['from'] = obj1_list
+        all_scenes[sceneid]['edge_lists']['to'] = obj2_list
+        all_scenes[sceneid]['edge_lists']['relation'] = relation_list
+        all_scenes[sceneid]['edge_lists']['relation_word2vec'] = relation_word2vec_list
+        all_scenes[sceneid]['edge_lists']['relation_ada'] = relation_ada_list
+        all_scenes[sceneid]['edge_lists']['distance'] = dist_list
+    torch.save(all_scenes, '/home/julia/Documents/h_coarse_loc/playground/graph_models/data_checkpoints/processed_data/3dssg/3dssg_graphs_processed_edgelists_relationembed.pt')
 
-# TODO:
-# [X] Validate that the bounding boxes in the scenes are correct to validate the distances are correct
+def add_node_features(all_scenes):
+    hada = {}
+    hw2v = {}
+    print(len(all_scenes))
+    for scene in tqdm(all_scenes):
+        objects = all_scenes[scene]['objects']
+        for obj in tqdm(objects):
+            label_ada, hada = get_ada(objects[obj]['label'], hada)
+            objects[obj]['label_ada'] = label_ada
+            label_word2vec = get_word2vec(objects[obj]['label'], hw2v)
+            objects[obj]['label_word2vec'] = label_word2vec
+            attributes_w2v = {}
+            attributes_ada = {}
+            for attrs in objects[obj]['attributes']:
+                attributes_w2v[attrs] = []
+                attributes_ada[attrs] = []
+                for attr in objects[obj]['attributes'][attrs]:
+                    attr_w2v, hw2v = get_word2vec(attr, hw2v)
+                    attributes_w2v[attrs].append(attr_w2v)
+                    attr_ada, hada = get_ada(attr, hada)
+                    attributes_ada[attrs].append(attr_ada)
+            objects[obj]['attributes_w2v'] = attributes_w2v
+            objects[obj]['attributes_ada'] = attributes_ada
+    # torch.save(all_scenes, '/home/julia/Documents/h_coarse_loc/playground/graph_models/data_checkpoints/processed_data/3dssg/3dssg_graphs_processed.pt') # uncomment to save
+
+def check_num_edges(all_scenes):
+    num_edges = []
+    adj_num_edges = []
+    for scene in all_scenes:
+        num_edges.append(len(all_scenes[scene]['edge_lists']['from']))
+        adj_list = all_scenes[scene]['relationships']
+        scene_sum = 0
+        for adj in adj_list:
+            adj_to = len(adj_list[adj]['adj_to'])
+            scene_sum += adj_to
+        adj_num_edges.append(scene_sum)
+
+    assert(len(num_edges) == len(adj_num_edges))
+    assert(all(num_edges[i] == adj_num_edges[i] for i in range(len(num_edges))))
+
+if __name__ == "__main__":
+    all_scenes = torch.load('/home/julia/Documents/h_coarse_loc/playground/graph_models/data_checkpoints/processed_data/3dssg/3dssg_graphs_processed.pt')
+    add_edge_list(all_scenes)

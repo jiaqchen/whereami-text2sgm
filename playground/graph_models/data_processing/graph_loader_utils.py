@@ -1,13 +1,23 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+# Python suppress warnings from spaCy
+import warnings
+warnings.filterwarnings("ignore", message=r"\[W095\]", category=UserWarning)
+
+import spacy
+import en_core_web_lg
+# nlp = spacy.load("en_core_web_md")
+nlp = spacy.load("en_core_web_lg")
+
+from create_text_embeddings import create_embedding
+
 def plot_relation(obj1, obj2, ax, distance):
     centroid1 = np.array(obj1['obb']['centroid'])
     centroid2 = np.array(obj2['obb']['centroid'])
     
     # Plot line between centroids, use distance as a thickness
-    ax.plot([centroid1[0], centroid2[0]], [centroid1[1], centroid2[1]], [centroid1[2], centroid2[2]], c='b', linewidth=distance)
-    
+    ax.plot([centroid1[0], centroid2[0]], [centroid1[1], centroid2[1]], [centroid1[2], centroid2[2]], c='b', linewidth=distance) 
 
 def draw_obb(corners, ax):
     ax.plot([corners[0, 0], corners[1, 0]], [corners[0, 1], corners[1, 1]], [corners[0, 2], corners[1, 2]], c='g')
@@ -80,9 +90,18 @@ def get_obj_distance(obj1, obj2, objs):
     dist = np.sqrt(np.sum(u * u) + np.sum(v * v))
     return dist
 
+def get_ada(desc, hash):
+    if desc in hash:
+        return hash[desc], hash
+    else:
+        hash[desc] = create_embedding(desc)
+    return hash[desc], hash
 
-# 1d234004-e280-2b1a-8ec8-560046b9fc96
-
-
-
-    
+def get_word2vec(desc, hash):
+    if desc == "":
+        return np.zeros(300)
+    if desc in hash:
+        return hash[desc], hash
+    else:
+        hash[desc] = nlp(desc)[0].vector
+    return hash[desc], hash
