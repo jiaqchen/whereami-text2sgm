@@ -138,7 +138,7 @@ def add_edge_list(all_scenes):
         all_scenes[sceneid]['edge_lists']['relation_word2vec'] = relation_word2vec_list
         all_scenes[sceneid]['edge_lists']['relation_ada'] = relation_ada_list
         all_scenes[sceneid]['edge_lists']['distance'] = dist_list
-    torch.save(all_scenes, '/home/julia/Documents/h_coarse_loc/playground/graph_models/data_checkpoints/processed_data/3dssg/3dssg_graphs_processed_edgelists_relationembed.pt')
+    # torch.save(all_scenes, '/home/julia/Documents/h_coarse_loc/playground/graph_models/data_checkpoints/processed_data/3dssg/3dssg_graphs_processed_edgelists_relationembed.pt') # uncomment to save
 
 def add_node_features(all_scenes):
     hada = {}

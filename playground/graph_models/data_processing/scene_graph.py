@@ -2,7 +2,7 @@ import json
 import torch
 from tqdm import tqdm
 
-from data_processing_utils import check_valid_graph
+from scene_graph_utils import check_valid_graph
 
 class Node:
     def __init__(self, idx, label_features, attribute_features):
@@ -22,8 +22,8 @@ class SceneGraph:
     def __init__(self, graph_type, graph, max_dist, embedding_type='ada'):
         if graph_type == '3dssg':
             self.nodes = self.extract_nodes(graph['objects'], embedding_type)
-            self.edge_idx = self.extract_edges(graph['edge_lists'], max_dist, embedding_type)
-
+            self.edge_idx, _, self.edge_features = self.extract_edges(graph['edge_lists'], max_dist, embedding_type)
+            assert(len(self.edge_idx[0]) == len(self.edge_features))
             assert(check_valid_graph(self.nodes, self.edge_idx))
         elif graph_type == 'scanscribe':
             self.nodes = []
@@ -55,8 +55,6 @@ class SceneGraph:
         edge_idx.append(from_edge)
         edge_idx.append(to_edge)            
         return edge_idx, edge_attributes, edge_attributes_embedding
-        # TODO: commit to github once done!
-        # TODO: delete after
 
     def get_subgraph(self, node_ids):
         subgraph_nodes = []
@@ -97,7 +95,7 @@ class SceneGraph:
 
 if __name__ == '__main__':
     ######## 3DSSG #########
-    _3dssg_scenes = torch.load('/home/julia/Documents/h_coarse_loc/playground/graph_models/data_checkpoints/processed_data/3dssg/3dssg_graphs_processed_edgelists.pt')
+    _3dssg_scenes = torch.load('/home/julia/Documents/h_coarse_loc/playground/graph_models/data_checkpoints/processed_data/3dssg/3dssg_graphs_processed_edgelists_relationembed.pt')
     for sceneid in tqdm(_3dssg_scenes):
         sg = SceneGraph('3dssg', _3dssg_scenes[sceneid], max_dist=1.0, embedding_type='ada')
     
