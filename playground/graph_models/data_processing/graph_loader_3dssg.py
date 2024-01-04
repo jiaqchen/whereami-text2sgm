@@ -127,8 +127,10 @@ def add_edge_list(all_scenes):
             obj1_list.append(rel[0])
             obj2_list.append(rel[1])
             relation_list.append(rel[3])
-            relation_word2vec_list.append(get_word2vec(rel[3], hw2v))
-            relation_ada_list.append(get_ada(rel[3], hada))
+            w2v, hw2v = get_word2vec(rel[3], hw2v)
+            relation_word2vec_list.append(w2v)
+            ada, hada = get_ada(rel[3], hada)
+            relation_ada_list.append(ada)
             dist_list.append(get_obj_distance(str(rel[0]), str(rel[1]), all_scenes[sceneid]['objects']))
         assert(len(obj1_list) == len(obj2_list) == len(relation_list) == len(dist_list))
         all_scenes[sceneid]['edge_lists'] = {}
@@ -138,7 +140,7 @@ def add_edge_list(all_scenes):
         all_scenes[sceneid]['edge_lists']['relation_word2vec'] = relation_word2vec_list
         all_scenes[sceneid]['edge_lists']['relation_ada'] = relation_ada_list
         all_scenes[sceneid]['edge_lists']['distance'] = dist_list
-    # torch.save(all_scenes, '/home/julia/Documents/h_coarse_loc/playground/graph_models/data_checkpoints/processed_data/3dssg/3dssg_graphs_processed_edgelists_relationembed.pt') # uncomment to save
+    torch.save(all_scenes, '/home/julia/Documents/h_coarse_loc/playground/graph_models/data_checkpoints/processed_data/3dssg/3dssg_graphs_processed_edgelists_relationembed.pt') # uncomment to save
 
 def add_node_features(all_scenes):
     hada = {}
@@ -149,21 +151,21 @@ def add_node_features(all_scenes):
         for obj in tqdm(objects):
             label_ada, hada = get_ada(objects[obj]['label'], hada)
             objects[obj]['label_ada'] = label_ada
-            label_word2vec = get_word2vec(objects[obj]['label'], hw2v)
+            label_word2vec, hw2v = get_word2vec(objects[obj]['label'], hw2v)
             objects[obj]['label_word2vec'] = label_word2vec
-            attributes_w2v = {}
+            attributes_word2vec = {}
             attributes_ada = {}
             for attrs in objects[obj]['attributes']:
-                attributes_w2v[attrs] = []
+                attributes_word2vec[attrs] = []
                 attributes_ada[attrs] = []
                 for attr in objects[obj]['attributes'][attrs]:
-                    attr_w2v, hw2v = get_word2vec(attr, hw2v)
-                    attributes_w2v[attrs].append(attr_w2v)
+                    attr_word2vec, hw2v = get_word2vec(attr, hw2v)
+                    attributes_word2vec[attrs].append(attr_word2vec)
                     attr_ada, hada = get_ada(attr, hada)
                     attributes_ada[attrs].append(attr_ada)
-            objects[obj]['attributes_w2v'] = attributes_w2v
+            objects[obj]['attributes_word2vec'] = attributes_word2vec
             objects[obj]['attributes_ada'] = attributes_ada
-    # torch.save(all_scenes, '/home/julia/Documents/h_coarse_loc/playground/graph_models/data_checkpoints/processed_data/3dssg/3dssg_graphs_processed.pt') # uncomment to save
+    torch.save(all_scenes, '/home/julia/Documents/h_coarse_loc/playground/graph_models/data_checkpoints/processed_data/3dssg/3dssg_graphs_processed.pt') # uncomment to save
 
 def check_num_edges(all_scenes):
     num_edges = []
@@ -180,6 +182,25 @@ def check_num_edges(all_scenes):
     assert(len(num_edges) == len(adj_num_edges))
     assert(all(num_edges[i] == adj_num_edges[i] for i in range(len(num_edges))))
 
+def change_w2v_word2vec(all_scenes, p):
+    for scene_id in tqdm(all_scenes):
+        for node_id in all_scenes[scene_id]['objects']:
+            node = all_scenes[scene_id]['objects'][node_id]
+            node['attributes_word2vec'] = node['attributes_w2v']
+            del node['attributes_w2v']
+    torch.save(all_scenes, p)
+
+
 if __name__ == "__main__":
+    all_scenes = torch.load('/home/julia/Documents/h_coarse_loc/playground/graph_models/data_checkpoints/raw_data/3dssg/3dssg_graphs_original.pt')
+    add_node_features(all_scenes)
     all_scenes = torch.load('/home/julia/Documents/h_coarse_loc/playground/graph_models/data_checkpoints/processed_data/3dssg/3dssg_graphs_processed.pt')
     add_edge_list(all_scenes)
+
+    # p = '/home/julia/Documents/h_coarse_loc/playground/graph_models/data_checkpoints/processed_data/3dssg/3dssg_graphs_processed_edgelists_relationembed.pt'
+    # all_scenes = torch.load(p)
+    # change_w2v_word2vec(all_scenes, p)
+
+    # p = '/home/julia/Documents/h_coarse_loc/playground/graph_models/data_checkpoints/processed_data/3dssg/3dssg_graphs_processed.pt'
+    # all_scenes = torch.load(p)
+    # change_w2v_word2vec(all_scenes, p)

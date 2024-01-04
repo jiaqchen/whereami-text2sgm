@@ -1,6 +1,7 @@
-import json
 import torch
 from tqdm import tqdm
+import random
+random.seed(3)
 
 from scene_graph_utils import check_valid_graph
 
@@ -19,27 +20,42 @@ class Edge:
         self.features = features
 
 class SceneGraph:
-    def __init__(self, graph_type, graph, max_dist, embedding_type='ada'):
+    def __init__(self, graph_type=None, graph=None, max_dist=None, embedding_type='ada'):
         if graph_type == '3dssg':
-            self.nodes = self.extract_nodes(graph['objects'], embedding_type)
-            self.edge_idx, _, self.edge_features = self.extract_edges(graph['edge_lists'], max_dist, embedding_type)
+            self.nodes = self.extract_nodes_3dssg(graph['objects'], embedding_type)
+            self.edge_idx, _, self.edge_features = self.extract_edges_3dssg(graph['edge_lists'], max_dist, embedding_type)
             assert(len(self.edge_idx[0]) == len(self.edge_features))
             assert(check_valid_graph(self.nodes, self.edge_idx))
         elif graph_type == 'scanscribe':
-            self.nodes = []
-            self.edge_idx = []
+            self.nodes = self.extract_nodes_scanscribe(graph['nodes'], embedding_type)
+            self.edge_idx, _, self.edge_features = self.extract_edges_scanscribe(graph['edges'], embedding_type)
+            assert(len(self.edge_idx[0]) == len(self.edge_features))
+            assert(check_valid_graph(self.nodes, self.edge_idx))
+        elif graph_type == None:
+            self.nodes = None
+            self.edge_idx = None
+            self.edge_features = None
 
-    def extract_nodes(self, objects, embedding_type='ada'):
+    def extract_nodes_3dssg(self, objects, embedding_type='ada'):
         nodes = {}
         for objid in objects:
             obj = objects[objid]
             attributes_list = [a for attr in obj['attributes_' + embedding_type] for a in obj['attributes_' + embedding_type][attr]]
             if len(attributes_list): assert(len(attributes_list[0]) == len(obj['label_' + embedding_type]))
-            node = Node(obj['id'], obj['label_' + embedding_type], attributes_list)
-            nodes[obj['id']] = node
+            node = Node(int(obj['id']), obj['label_' + embedding_type], attributes_list)
+            nodes[int(obj['id'])] = node
+        return nodes
+    
+    def extract_nodes_scanscribe(self, objects, embedding_type='ada'):
+        nodes = {}
+        for obj in objects:
+            attributes_list = obj['attributes_' + embedding_type]['all']
+            if len(attributes_list): assert(len(attributes_list[0]) == len(obj['label_' + embedding_type]))
+            node = Node(int(obj['id']), obj['label_' + embedding_type], attributes_list)
+            nodes[int(obj['id'])] = node
         return nodes
 
-    def extract_edges(self, edge_lists, max_dist, embedding_type='ada'):
+    def extract_edges_3dssg(self, edge_lists, max_dist, embedding_type='ada'):
         edge_idx = []
         from_edge = []
         to_edge = []
@@ -47,66 +63,86 @@ class SceneGraph:
         edge_attributes_embedding = []
         for idx, d in enumerate(edge_lists['distance']):
             if d <= max_dist:
-                from_edge.append(edge_lists['from'][idx])
-                to_edge.append(edge_lists['to'][idx])
+                from_edge.append(int(edge_lists['from'][idx]))
+                to_edge.append(int(edge_lists['to'][idx]))
                 edge_attributes.append(edge_lists['relation'][idx])
                 edge_attributes_embedding.append(edge_lists['relation_' + embedding_type][idx])
         assert(len(from_edge) == len(to_edge))
         edge_idx.append(from_edge)
         edge_idx.append(to_edge)            
         return edge_idx, edge_attributes, edge_attributes_embedding
+    
+    def extract_edges_scanscribe(self, edges, embedding_type='ada'):
+        edge_idx = []
+        from_edge = []
+        to_edge = []
+        edge_attributes = []
+        edge_attributes_embedding = []
+        for idx in range(len(edges)):
+            from_edge.append(int(edges[idx]['source']))
+            to_edge.append(int(edges[idx]['target']))
+            edge_attributes.append(edges[idx]['relationship'])
+            edge_attributes_embedding.append(edges[idx]['relation_' + embedding_type])
+        assert(len(from_edge) == len(to_edge))
+        edge_idx.append(from_edge)
+        edge_idx.append(to_edge)            
+        return edge_idx, edge_attributes, edge_attributes_embedding
 
     def get_subgraph(self, node_ids):
-        subgraph_nodes = []
+        subgraph_nodes = {}
+        subgraph_node_features = []
         subgraph_edge_ids_from = []
         subgraph_edge_ids_to = []
-        for node in self.nodes:
-            if node.idx in node_ids:
-                subgraph_nodes.append(node.features)
+        for node_id in self.nodes:
+            node = self.nodes[node_id]
+            if int(node.idx) in node_ids:
+                subgraph_nodes[int(node.idx)] = node
+                subgraph_node_features.append(node.features)
         for from_idx, to_idx in zip(self.edge_idx[0], self.edge_idx[1]):
-            if from_idx in node_ids and to_idx in node_ids:
-                subgraph_edge_ids_from.append(from_idx)
-                subgraph_edge_ids_to.append(to_idx)
+            if int(from_idx) in node_ids and int(to_idx) in node_ids:
+                subgraph_edge_ids_from.append(int(from_idx))
+                subgraph_edge_ids_to.append(int(to_idx))
         subgraph_edge_ids = []
         subgraph_edge_ids.append(subgraph_edge_ids_from)
         subgraph_edge_ids.append(subgraph_edge_ids_to)
-        return subgraph_nodes, subgraph_edge_ids, None # node_features, edge_idx, edge_feature
+        return subgraph_nodes, subgraph_node_features, subgraph_edge_ids, None # node_features, edge_idx, edge_feature
     
     def to_pyg(self):
-        node_ids = [int(node.idx) for node in self.nodes]
+        print(self.nodes.keys())
+        node_ids = [int(self.nodes[node_id].idx) for node_id in self.nodes]
         edge_ids = self.edge_idx
 
         nodeid_map = {}
         for idx, nodeid in enumerate(node_ids):
-            nodeid_map[nodeid] = idx
+            nodeid_map[int(nodeid)] = idx
         
         edge_ids_remap = []
         edge_ids_from = []
         edge_ids_to = []
         for from_idx, to_idx in zip(edge_ids[0], edge_ids[1]):
-            edge_ids_from.append(nodeid_map[from_idx])
-            edge_ids_to.append(nodeid_map[to_idx])
+            edge_ids_from.append(nodeid_map[int(from_idx)])
+            edge_ids_to.append(nodeid_map[int(to_idx)])
         edge_ids_remap.append(edge_ids_from)
         edge_ids_remap.append(edge_ids_to)
 
-        node_features = [node.features for node in self.nodes]
+        node_features = [self.nodes[node_id].features for node_id in self.nodes]
+        print(f'nodeid_map: {nodeid_map}')
+        print(f'edge_ids_remap: {edge_ids_remap}')
+        print(f'len(node_features): {len(node_features)}')
         return node_features, edge_ids_remap, None # node_features, edge_idx, edge_features
 
 
 if __name__ == '__main__':
-    ######## 3DSSG #########
+    ######## 3DSSG ######### 1335 3DSSG graphs
     _3dssg_scenes = torch.load('/home/julia/Documents/h_coarse_loc/playground/graph_models/data_checkpoints/processed_data/3dssg/3dssg_graphs_processed_edgelists_relationembed.pt')
     for sceneid in tqdm(_3dssg_scenes):
         sg = SceneGraph('3dssg', _3dssg_scenes[sceneid], max_dist=1.0, embedding_type='ada')
     
-    ######### ScanScribe #########
-    # scanscribe_scenes = torch.load('/home/julia/Documents/h_coarse_loc/playground/graph_models/data_checkpoints/raw_data/scanscribe/scanscribe_cleaned_original.pt')
-    # random id
-    # import random
-    # random.seed(3)
-    # scene_id = random.choice(list(scanscribe_scenes.keys()))
-
-    # for scene_id in tqdm(scanscribe_scenes):
-        # txtids = scanscribe_scenes[scene_id].keys()
-        # assert(len(set(txtids)) == len(txtids)) # no duplicate txtids
-        # assert(len(set(txtids)) == len(range(max([int(id) for id in txtids]) + 1))) # no missing txtids
+    ######### ScanScribe ######### 218 ScanScribe graphs
+    scanscribe_scenes = torch.load('/home/julia/Documents/h_coarse_loc/playground/graph_models/data_checkpoints/processed_data/scanscribe/scanscribe_cleaned_original_node_edge_features.pt')
+    for scene_id in tqdm(scanscribe_scenes):
+        txtids = scanscribe_scenes[scene_id].keys()
+        assert(len(set(txtids)) == len(txtids)) # no duplicate txtids
+        assert(len(set(txtids)) == len(range(max([int(id) for id in txtids]) + 1))) # no missing txtids
+        for txt_id in txtids:
+            sg = SceneGraph('scanscribe', scanscribe_scenes[scene_id][txt_id], embedding_type='ada')

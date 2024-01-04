@@ -105,3 +105,25 @@ def get_word2vec(desc, hash):
     else:
         hash[desc] = nlp(desc)[0].vector
     return hash[desc], hash
+
+
+
+
+
+
+
+
+def check_and_remove_invalid_edges(all_scenes):
+    for scene_id in tqdm(all_scenes):
+        for txt_id in all_scenes[scene_id]:
+            for edge in all_scenes[scene_id][txt_id]['edges']:
+                source = edge['source']
+                target = edge['target']
+                try:
+                    source = int(edge['source'])
+                    target = int(edge['target'])
+                except:
+                    print(f'Error in scene {scene_id}, txt {txt_id}, source {source}, target {target}')
+                    print("Removing edge")
+                    all_scenes[scene_id][txt_id]['edges'].remove(edge)
+    return all_scenes
