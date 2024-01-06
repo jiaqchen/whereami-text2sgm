@@ -10,6 +10,10 @@ import tiktoken
 import tqdm
 import sys
 
+import spacy
+import en_core_web_lg
+nlp = spacy.load("en_core_web_lg")
+
 sys.path.insert(0, '/home/julia/Documents/h_coarse_loc/playground')
 from graph_models.src.utils import load_text_dataset
 
@@ -61,7 +65,56 @@ def tokenize_text(filename):
             dict_of_embeddings[scan_id].append(embedding)
     return dict_of_embeddings
 
+def create_embedding_nlp(text):
+    # spacy embedding
+    doc = nlp(text)
+    embedding = doc.vector
+    assert(len(embedding) == 300)
+    return embedding
+
+def test_ada_embedding():
+    worda = 'shelf'
+    atta = ['brown']
+    wordb = 'floor'
+    attb = ['tiled']
+
+    emba = create_embedding(worda)
+    avg_atta = np.mean([create_embedding(att) for att in atta], axis=0)
+    embb = create_embedding(wordb)
+    avg_attb = np.mean([create_embedding(att) for att in attb], axis=0)
+
+    print(f'cosine ab word only: {np.dot(emba, embb) / (np.linalg.norm(emba) * np.linalg.norm(embb))}')
+
+    emba = np.add(emba, avg_atta)
+    embb = np.add(embb, avg_attb)
+
+    emba_weighted_sum = np.add(emba, 0.2*avg_atta)
+    embb_weighted_sum = np.add(embb, 0.2*avg_attb)
+
+    # cosine similarity
+    print(f'cosine ab: {np.dot(emba, embb) / (np.linalg.norm(emba) * np.linalg.norm(embb))}')
+    print(f'cosine ab weighted sum: {np.dot(emba_weighted_sum, embb_weighted_sum) / (np.linalg.norm(emba_weighted_sum) * np.linalg.norm(embb_weighted_sum))}')
+
+def test_nlp_embedding():
+    worda = 'shelf'
+    wordb = 'bookshelf'
+    wordc = 'yellow'
+    wordd = 'Jacket'
+    emba = create_embedding_nlp(worda)
+    embb = np.add(create_embedding_nlp(wordb), create_embedding_nlp(wordc))
+    embd = create_embedding_nlp(wordd)
+    # cosine similarity
+    print(f'cosine ab: {np.dot(emba, embb) / (np.linalg.norm(emba) * np.linalg.norm(embb))}')
+    # print(f'cosine ac: {np.dot(emba, embc) / (np.linalg.norm(emba) * np.linalg.norm(embc))}')
+    print(f'cosine ad: {np.dot(emba, embd) / (np.linalg.norm(emba) * np.linalg.norm(embd))}')
+    # print(f'cosine bc: {np.dot(embb, embc) / (np.linalg.norm(embb) * np.linalg.norm(embc))}')
+    print(f'cosine bd: {np.dot(embb, embd) / (np.linalg.norm(embb) * np.linalg.norm(embd))}')
+    # print(f'cosine cd: {np.dot(embc, embd) / (np.linalg.norm(embc) * np.linalg.norm(embd))}')
+
 if __name__ == '__main__':
+    test_ada_embedding()
+    exit()
+
     ## check_tokens()
     ############################### Create embeddings for text dataset
     parser = argparse.ArgumentParser()
