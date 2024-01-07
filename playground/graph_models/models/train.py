@@ -14,73 +14,92 @@ from scene_graph import SceneGraph
 from data_distribution_analysis.helper import get_matching_subgraph, calculate_overlap
 from model_graph2graph import BigGNN
 
+torch.cuda.empty_cache()
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(torch.cuda.current_device())
+
+random.seed(42)
 
 def train_graph2graph(_3dssg_graphs, scanscribe_graphs):
     model = BigGNN(args.N).to('cuda')
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     iter = 0
-    graph_size_min = 5
+    graph_size_min = 7
 
-    # sample first 100 in scanscribe
-    scanscribe_graphs = {k: scanscribe_graphs[k] for k in random.sample(list(scanscribe_graphs), 30)}
+    # filter out graphs that are too small
+    scanscribe_graphs = {k: scanscribe_graphs[k] for k in scanscribe_graphs if len(scanscribe_graphs[k].nodes) >= graph_size_min}
+    print(f'num of graphs bigger than {graph_size_min}: {len(scanscribe_graphs)}')
+    # sample in scanscribe
+    # scanscribe_graphs = {k: scanscribe_graphs[k] for k in random.sample(list(scanscribe_graphs), 4)}
+    current_keys = list(scanscribe_graphs.keys())
+    # assert(len(set([k.split('_')[0] for k in scanscribe_graphs])) == len(scanscribe_graphs.keys()))
+    assert(all([len(scanscribe_graphs[g].nodes) >= graph_size_min for g in scanscribe_graphs]))
 
     for epoch in tqdm(range(args.epoch)):
         for scribe_id in scanscribe_graphs:
             scribe_g = scanscribe_graphs[scribe_id]
             _3dssg_g = _3dssg_graphs[scribe_id.split('_')[0]]
-            if (len(scribe_g.nodes) < graph_size_min) or (len(_3dssg_g.nodes) < graph_size_min): continue
+            if (len(scribe_g.nodes) < graph_size_min) or (len(_3dssg_g.nodes) < graph_size_min): 
+                print(f'graph size too small continuing...')
+                continue
 
             iter += 1
 
             # Get negative sample until overlap is less than args.overlap_thr
             # overlap_n, overlap_iter = 1.0, 0
             # while (overlap_n > args.overlap_thr and overlap_iter < 1000):
-                # _3dssg_g_n = _3dssg_graphs[np.random.choice(list(_3dssg_graphs.keys() - scribe_id.split('_')[0]))]
-                # scribe_g_subgraph_n, _3dssg_g_subgraph_n = get_matching_subgraph(scribe_g, _3dssg_g_n)
+            scribe_g_subgraph_n, _3dssg_g_subgraph_n = None, None
+            while (scribe_g_subgraph_n is None or _3dssg_g_subgraph_n is None):
+                # _3dssg_g_n = _3dssg_graphs[np.random.choice(list([k for k in _3dssg_graphs if k != scribe_id.split('_')[0]]))]
+                _3dssg_g_n = _3dssg_graphs[np.random.choice([k.split('_')[0] for k in current_keys if k.split('_')[0] != scribe_id.split('_')[0]])]
+                scribe_g_subgraph_n, _3dssg_g_subgraph_n = get_matching_subgraph(scribe_g, _3dssg_g_n)
                 # overlap_n = calculate_overlap(scribe_g_subgraph_n, _3dssg_g_subgraph_n, args.cos_sim_thr)
                 # overlap_iter += 1 # just take a random one if no good overlap found after 10000 overlap_iter
 
-            scribe_g_subgraph, _3dssg_g_subgraph = get_matching_subgraph(scribe_g, _3dssg_g) # TODO: subgraphing cannot be so absolute, must be able to have some nodes...
-            overlap = calculate_overlap(scribe_g_subgraph, _3dssg_g_subgraph, args.cos_sim_thr)
-            if overlap < args.overlap_thr: print(f'Warning: positive pair overlap is less than threshold: {overlap}')
+            # TODO: 1) fix subgraphing to be like before
+
+            scribe_g_subgraph, _3dssg_g_subgraph = get_matching_subgraph(scribe_g, _3dssg_g) # TODO: 2) implement the validation
+                                                                                             #       3) check what the graph neural network is doing
+            # overlap = calculate_overlap(scribe_g_subgraph, _3dssg_g_subgraph, args.cos_sim_thr)
+            # if overlap < args.overlap_thr: print(f'Warning: positive pair overlap is less than threshold: {overlap}')
 
             # x = torch.tensor([scribe_g.nodes[i].features for i in scribe_g.nodes]).to('cuda') # TODO: Why is x not the same as x_node_ft?
             # p = torch.tensor([_3dssg_g.nodes[i].features for i in _3dssg_g.nodes]).to('cuda')
-            # n = torch.tensor([_3dssg_g_n.nodes[i].features for i in _3dssg_g_n.nodes]).to('cuda')
 
-            x_node_ft, x_edge_idx, x_edge_ft = scribe_g_subgraph.to_pyg() # scribe_g.to_pyg()
+            x_node_ft, x_edge_idx, x_edge_ft = scribe_g.to_pyg() # scribe_g.to_pyg()
             p_node_ft, p_edge_idx, p_edge_ft = _3dssg_g_subgraph.to_pyg() # _3dssg_g.to_pyg()
-            # n_node_ft, n_edge_idx, n_edge_ft = _3dssg_g.to_pyg()
-            if len(x_edge_idx[0]) <= 2 or len(p_edge_idx[0]) <= 2: continue # TODO: make sure subgraphs always have something
+            n_node_ft, n_edge_idx, n_edge_ft = _3dssg_g_subgraph_n.to_pyg()
+            if len(x_edge_idx[0]) <= 2 or len(p_edge_idx[0]) <= 2 or len(n_edge_idx[0]) <= 2: 
+                print(f'edge_idx too small continuing...')
+                continue
+            print(f'len(scribe_g.nodes): {len(scribe_g.nodes)}, len(p_node_ft): {len(p_node_ft)}, len(n_node_ft): {len(n_node_ft)})')
 
-            x_p, p_p, m_p = model(torch.tensor(np.array(x_node_ft)).to('cuda'), torch.tensor(np.array(p_node_ft)).to('cuda'),
-                                    torch.tensor(x_edge_idx).to('cuda'), torch.tensor(p_edge_idx).to('cuda'),
-                                    torch.tensor(np.array(x_edge_ft)).to('cuda'), torch.tensor(np.array(p_edge_ft)).to('cuda'))
-            # x_n, n_n, m_n = model(torch.tensor(np.array(x_node_ft)).to('cuda'), torch.tensor(np.array(n_node_ft)).to('cuda'),
-                                    # torch.tensor(x_edge_idx).to('cuda'), torch.tensor(n_edge_idx).to('cuda'),
-                                    # torch.tensor(np.array(x_edge_ft)).to('cuda'), torch.tensor(np.array(n_edge_ft)).to('cuda'))
+            x_p, p_p, m_p = model(torch.tensor(np.array(x_node_ft), dtype=torch.float32).to('cuda'), torch.tensor(np.array(p_node_ft), dtype=torch.float32).to('cuda'),
+                                    torch.tensor(x_edge_idx, dtype=torch.int64).to('cuda'), torch.tensor(p_edge_idx, dtype=torch.int64).to('cuda'),
+                                    torch.tensor(np.array(x_edge_ft), dtype=torch.float32).to('cuda'), torch.tensor(np.array(p_edge_ft), dtype=torch.float32).to('cuda'))
+            x_n, n_n, m_n = model(torch.tensor(np.array(x_node_ft), dtype=torch.float32).to('cuda'), torch.tensor(np.array(n_node_ft), dtype=torch.float32).to('cuda'),
+                                    torch.tensor(x_edge_idx, dtype=torch.int64).to('cuda'), torch.tensor(n_edge_idx, dtype=torch.int64).to('cuda'),
+                                    torch.tensor(np.array(x_edge_ft), dtype=torch.float32).to('cuda'), torch.tensor(np.array(n_edge_ft), dtype=torch.float32).to('cuda'))
             
             loss1 = 1 - F.cosine_similarity(x_p, p_p, dim=0) # [0, 2] 0 is good
-            # loss2 = 1 - F.cosine_similarity(x_n, n_n, dim=0) # [0, 2] 2 is good
-            # loss3 = (1 - m_p) + m_n
+            loss2 = 2 - (1 - F.cosine_similarity(x_n, n_n, dim=0)) # [0, 2] 2 is good
+            loss3 = (1 - m_p) + m_n
 
-            loss = loss1 + (1 - m_p)
+            loss = loss1 + loss2 + loss3
             
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
             if iter % 10 == 0:
-                wandb.log({"loss1": loss1.sum().item(),
-                            # "loss2": loss2.sum().item(),
-                            # "loss3": loss3.sum().item(),
+                wandb.log({"loss1": loss1.item(),
+                            "loss2": loss2.item(),
+                            "loss3": loss3.sum().item(),
                             "loss": loss.item(),
-                            "match_prob_pos": m_p.item()})
-                            # "match_prob_neg": m_n.item()})
+                            "match_prob_pos": m_p.item(),
+                            "match_prob_neg": m_n.item()})
         
-        wandb.log({"loss_per_epoch": loss.item()})
+        # wandb.log({"loss_per_epoch": loss.item()})
     return model
 
 
