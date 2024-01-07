@@ -14,9 +14,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import MessagePassing, GATConv, GCNConv, TransformerConv
 
-from playground.graph_model.data_processing.sg_dataloader import SceneGraph, Node
+import sys
+sys.path.append('/home/julia/Documents/h_coarse_loc')
+sys.path.append('/home/julia/Documents/h_coarse_loc/playground/graph_models')
+from playground.graph_models.data_processing.sg_dataloader import SceneGraph, Node
 from hungarian.sinkhorn import get_optimal_transport_scores, optimal_transport_between_two_graphs, get_subgraph
-from playground.graph_model.src.utils import print_closest_words, make_cross_graph, mask_node, accuracy_score, verify_subgraph
+from playground.graph_models.src.utils import print_closest_words, make_cross_graph, mask_node, accuracy_score, verify_subgraph
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(torch.cuda.current_device())
@@ -134,14 +137,14 @@ class SimpleGAT(MessagePassing):
     
 ###################################### TRAIN ######################################
 
-def train_dummy_big_gnn(list_of_graph1, list_of_graph2_dict):
+def train_dummy_big_gnn(list_of_graph1, list_of_graph2_dict, text_test, graph_test):
     # # first half of list_of_graph1 is the positive examples # SWAP BETWEEN SPLIT V NO SPLIT
     # list_of_graph1_pos = list_of_graph1[0:len(list_of_graph1)//2]
     # list_of_graph2_neg = []
     # for g in list_of_graph1[len(list_of_graph1)//2:]:
     #     list_of_graph2_neg.append(g.scene_id)
-
-    # TODO: graph edgese need to persist?
+    text_test = text_test[0:args.training_out_of]
+    graph_test = {t.scene_id: graph_test[t.scene_id] for t in text_test}
         
     # Define model
     model = BigGNN().to('cuda') # TODO: input output channels are hardcoded now, need to figure that out
@@ -245,7 +248,7 @@ def train_dummy_big_gnn(list_of_graph1, list_of_graph2_dict):
             # loss2 = torch.sigmoid(bias*loss2) #[0,1] 0 is good
             # make sure x_1_pos and x_2_neg are as similar as possible
             loss3 = F.mse_loss(x_1_pos, x_2_neg)
-            loss4 = (1-match_prob_pos) + match_prob_neg
+            loss4 = (1 - match_prob_pos) + match_prob_neg
 
             loss += loss1.sum() + 2 - loss2.sum() + loss4# + loss3.sum()
 
@@ -272,7 +275,10 @@ def train_dummy_big_gnn(list_of_graph1, list_of_graph2_dict):
         # Check accuracy of classification
         if epoch % 1 == 0:
             acc, _ = evaluate_model(model, list_of_graph1, list_of_graph2_dict, out_of=args.training_out_of, top_k=args.training_top_k)
-            wandb.log({"accuracy_per_epochs": acc})
+            acc_test, _ = evaluate_model(model, text_test, graph_test, out_of=args.training_out_of, top_k=args.training_top_k)
+            wandb.log({"accuracy_per_epochs": acc,
+                "accuracy_test_per_epoch": acc_test})
+
 
     return model
 
@@ -380,9 +386,9 @@ if __name__ == '__main__':
     list_of_graph_text = None
 
     # We must have a list_of_graph_3dssg_dict_room_label
-    if os.path.exists('list_of_graph_3dssg_dict_label_vec_no_attrib_no_room_node.pt'):
+    if os.path.exists('/home/julia/Documents/h_coarse_loc/playground/graph_models/data_checkpoints/list_of_graph_3dssg_dict_label_vec_no_attrib_no_room_node.pt'):
         print("Using 3DSSG presaved scene graphs")
-        list_of_graph_3dssg_dict_room_label = torch.load('list_of_graph_3dssg_dict_label_vec_no_attrib_no_room_node.pt') 
+        list_of_graph_3dssg_dict_room_label = torch.load('/home/julia/Documents/h_coarse_loc/playground/graph_models/data_checkpoints/list_of_graph_3dssg_dict_label_vec_no_attrib_no_room_node.pt') 
     else: # Load 3DSSG graphs as dict
         scene_ids_3dssg = os.listdir('../../data/3DSSG/3RScan')
         list_of_graph_3dssg_dict_room_label = {}
@@ -404,13 +410,13 @@ if __name__ == '__main__':
     # 3DSSG is the set of target graphs, we use either human or GPT annotations as the text graph
     if args.text_source == 'ScanScribe3DSSG+GPT':
         print("Using ScanScribe3DSSG+GPT as text source")
-        scene_ids = os.listdir('../scripts/scanscribe_json_gpt')
-        
+    
         # TODO: Try adding attributes to the features and saving another graph checkpoint
-        if os.path.exists('list_of_graph_text_label_vec_no_attrib_no_room_node.pt'):
+        if os.path.exists('/home/julia/Documents/h_coarse_loc/playground/graph_models/data_checkpoints/list_of_graph_text_label_vec_no_attrib_no_room_node.pt'):
             print("Using ScanScribe presaved text source")
-            list_of_graph_text = torch.load('list_of_graph_text_label_vec_no_attrib_no_room_node.pt')
+            list_of_graph_text = torch.load('/home/julia/Documents/h_coarse_loc/playground/graph_models/data_checkpoints/list_of_graph_text_label_vec_no_attrib_no_room_node.pt')
         else:
+            scene_ids = os.listdir('../scripts/scanscribe_json_gpt')
             # Go through folders
             list_of_graph_text = []
             for scene_id in scene_ids:
@@ -564,7 +570,7 @@ if __name__ == '__main__':
     text_file.close()
     graph_file.close()
 
-    model = train_dummy_big_gnn(list_of_graph_text_train, list_of_graph_3dssg_dict_room_label_train)
+    model = train_dummy_big_gnn(list_of_graph_text_train, list_of_graph_3dssg_dict_room_label_train, list_of_graph_text_test, list_of_graph_3dssg_dict_room_label_test)
 
     # Evaluate
     assert(len(list_of_graph_text_test) >= args.out_of)
