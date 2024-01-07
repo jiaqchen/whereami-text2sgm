@@ -10,7 +10,7 @@ from playground.graph_models.src.utils import make_cross_graph
 class SimpleTConv(MessagePassing):
     def __init__(self, in_n, in_e, out_n):
         super().__init__(aggr='add')
-        self.TConv = TransformerConv(in_n, out_n, concat=False, heads=1, dropout=0.5)
+        self.TConv = TransformerConv(in_n, out_n, concat=False, heads=2, dropout=0.5)
         self.act = nn.LeakyReLU()
 
     def forward(self, x, edge_index, edge_attr):
@@ -31,7 +31,9 @@ class BigGNN(nn.Module):
         self.GCALayers = nn.ModuleList([SimpleTConv(in_n, in_e, out_n) for _ in range(N)])
 
         self.SceneText_MLP = nn.Sequential(
-            nn.Linear(600, 300), # TODO: input dimension is hardcoded now
+            nn.Linear(300*2, 300), # TODO: input dimension is hardcoded now
+            nn.LeakyReLU(),
+            nn.Linear(300, 300),
             nn.LeakyReLU(),
             nn.Linear(300, 1),
             nn.Sigmoid()
