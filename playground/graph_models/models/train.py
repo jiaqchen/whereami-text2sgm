@@ -24,18 +24,22 @@ def train_graph2graph(_3dssg_graphs, scanscribe_graphs):
     model = BigGNN(args.N).to('cuda')
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     iter = 0
-    graph_size_min = 7
+    graph_size_min = 6
 
     # filter out graphs that are too small
     scanscribe_graphs = {k: scanscribe_graphs[k] for k in scanscribe_graphs if len(scanscribe_graphs[k].nodes) >= graph_size_min}
     print(f'num of graphs bigger than {graph_size_min}: {len(scanscribe_graphs)}')
     # sample in scanscribe
-    # scanscribe_graphs = {k: scanscribe_graphs[k] for k in random.sample(list(scanscribe_graphs), 4)}
+    scanscribe_graphs = {k: scanscribe_graphs[k] for k in random.sample(list(scanscribe_graphs), 4)}
     current_keys = list(scanscribe_graphs.keys())
     # assert(len(set([k.split('_')[0] for k in scanscribe_graphs])) == len(scanscribe_graphs.keys()))
     assert(all([len(scanscribe_graphs[g].nodes) >= graph_size_min for g in scanscribe_graphs]))
 
+    batch_size = 1
+
     for epoch in tqdm(range(args.epoch)):
+        curr_batch = 0
+        loss = 0
         for scribe_id in scanscribe_graphs:
             scribe_g = scanscribe_graphs[scribe_id]
             _3dssg_g = _3dssg_graphs[scribe_id.split('_')[0]]
@@ -44,6 +48,7 @@ def train_graph2graph(_3dssg_graphs, scanscribe_graphs):
                 continue
 
             iter += 1
+            curr_batch += 1
 
             # Get negative sample until overlap is less than args.overlap_thr
             # overlap_n, overlap_iter = 1.0, 0
@@ -85,21 +90,24 @@ def train_graph2graph(_3dssg_graphs, scanscribe_graphs):
             loss2 = 2 - (1 - F.cosine_similarity(x_n, n_n, dim=0)) # [0, 2] 2 is good
             loss3 = (1 - m_p) + m_n
 
-            loss = loss1 + loss2 + loss3
+            loss += loss1 + loss2 + loss3
             
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-            if iter % 10 == 0:
+            if (curr_batch % batch_size == 0):
+                optimizer.zero_grad()
+                loss = loss / batch_size
+                epoch_loss = loss
+                loss.backward()
+                optimizer.step()
                 wandb.log({"loss1": loss1.item(),
                             "loss2": loss2.item(),
                             "loss3": loss3.sum().item(),
                             "loss": loss.item(),
                             "match_prob_pos": m_p.item(),
                             "match_prob_neg": m_n.item()})
-        
-        # wandb.log({"loss_per_epoch": loss.item()})
+                loss = 0
+                curr_batch = 0
+
+        wandb.log({"loss_per_epoch": epoch_loss.item()})
     return model
 
 
