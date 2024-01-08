@@ -24,42 +24,37 @@ def train_graph2graph(_3dssg_graphs, scanscribe_graphs):
     model = BigGNN(args.N).to('cuda')
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     iter = 0
-    graph_size_min = 6
 
-    # filter out graphs that are too small
-    scanscribe_graphs = {k: scanscribe_graphs[k] for k in scanscribe_graphs if len(scanscribe_graphs[k].nodes) >= graph_size_min}
-    print(f'num of graphs bigger than {graph_size_min}: {len(scanscribe_graphs)}')
-    # sample in scanscribe
-    scanscribe_graphs = {k: scanscribe_graphs[k] for k in random.sample(list(scanscribe_graphs), 4)}
     current_keys = list(scanscribe_graphs.keys())
     # assert(len(set([k.split('_')[0] for k in scanscribe_graphs])) == len(scanscribe_graphs.keys()))
-    assert(all([len(scanscribe_graphs[g].nodes) >= graph_size_min for g in scanscribe_graphs]))
+    assert(all([len(scanscribe_graphs[g].nodes) >= args.graph_size_min for g in scanscribe_graphs]))
 
-    batch_size = 1
-
+    batch_size = args.batch_size
     for epoch in tqdm(range(args.epoch)):
         curr_batch = 0
         loss = 0
+        skipped = 0
+
         for scribe_id in scanscribe_graphs:
             scribe_g = scanscribe_graphs[scribe_id]
             _3dssg_g = _3dssg_graphs[scribe_id.split('_')[0]]
-            if (len(scribe_g.nodes) < graph_size_min) or (len(_3dssg_g.nodes) < graph_size_min): 
+            if (len(scribe_g.nodes) < args.graph_size_min) or (len(_3dssg_g.nodes) < args.graph_size_min): 
                 print(f'graph size too small continuing...')
                 continue
 
-            iter += 1
-            curr_batch += 1
-
-            # Get negative sample until overlap is less than args.overlap_thr
-            # overlap_n, overlap_iter = 1.0, 0
-            # while (overlap_n > args.overlap_thr and overlap_iter < 1000):
-            scribe_g_subgraph_n, _3dssg_g_subgraph_n = None, None
-            while (scribe_g_subgraph_n is None or _3dssg_g_subgraph_n is None):
-                # _3dssg_g_n = _3dssg_graphs[np.random.choice(list([k for k in _3dssg_graphs if k != scribe_id.split('_')[0]]))]
-                _3dssg_g_n = _3dssg_graphs[np.random.choice([k.split('_')[0] for k in current_keys if k.split('_')[0] != scribe_id.split('_')[0]])]
-                scribe_g_subgraph_n, _3dssg_g_subgraph_n = get_matching_subgraph(scribe_g, _3dssg_g_n)
-                # overlap_n = calculate_overlap(scribe_g_subgraph_n, _3dssg_g_subgraph_n, args.cos_sim_thr)
-                # overlap_iter += 1 # just take a random one if no good overlap found after 10000 overlap_iter
+            # # Get negative sample until overlap is less than args.overlap_thr
+            # # overlap_n, overlap_iter = 1.0, 0
+            # # while (overlap_n > args.overlap_thr and overlap_iter < 1000):
+            # scribe_g_subgraph_n, _3dssg_g_subgraph_n = None, None
+            # while (scribe_g_subgraph_n is None or _3dssg_g_subgraph_n is None):
+            #     # _3dssg_g_n = _3dssg_graphs[np.random.choice(list([k for k in _3dssg_graphs if k != scribe_id.split('_')[0]]))]
+            #     _3dssg_g_n = _3dssg_graphs[np.random.choice([k.split('_')[0] for k in current_keys if k.split('_')[0] != scribe_id.split('_')[0]])]
+            #     scribe_g_subgraph_n, _3dssg_g_subgraph_n = get_matching_subgraph(scribe_g, _3dssg_g_n)
+            #     # overlap_n = calculate_overlap(scribe_g_subgraph_n, _3dssg_g_subgraph_n, args.cos_sim_thr)
+            #     # overlap_iter += 1 # just take a random one if no good overlap found after 10000 overlap_iter
+            _3dssg_g_n = _3dssg_graphs[np.random.choice([k.split('_')[0] for k in current_keys if k.split('_')[0] != scribe_id.split('_')[0]])]
+            scribe_g_subgraph_n, _3dssg_g_subgraph_n = get_matching_subgraph(scribe_g, _3dssg_g_n)
+            if _3dssg_g_subgraph_n is None: _3dssg_g_subgraph_n = _3dssg_g_n
 
             # TODO: 1) fix subgraphing to be like before
 
@@ -75,9 +70,9 @@ def train_graph2graph(_3dssg_graphs, scanscribe_graphs):
             p_node_ft, p_edge_idx, p_edge_ft = _3dssg_g_subgraph.to_pyg() # _3dssg_g.to_pyg()
             n_node_ft, n_edge_idx, n_edge_ft = _3dssg_g_subgraph_n.to_pyg()
             if len(x_edge_idx[0]) <= 2 or len(p_edge_idx[0]) <= 2 or len(n_edge_idx[0]) <= 2: 
-                print(f'edge_idx too small continuing...')
+                skipped += 1
                 continue
-            print(f'len(scribe_g.nodes): {len(scribe_g.nodes)}, len(p_node_ft): {len(p_node_ft)}, len(n_node_ft): {len(n_node_ft)})')
+            # print(f'len(scribe_g.nodes): {len(scribe_g.nodes)}, len(p_node_ft): {len(p_node_ft)}, len(n_node_ft): {len(n_node_ft)})')
 
             x_p, p_p, m_p = model(torch.tensor(np.array(x_node_ft), dtype=torch.float32).to('cuda'), torch.tensor(np.array(p_node_ft), dtype=torch.float32).to('cuda'),
                                     torch.tensor(x_edge_idx, dtype=torch.int64).to('cuda'), torch.tensor(p_edge_idx, dtype=torch.int64).to('cuda'),
@@ -86,6 +81,9 @@ def train_graph2graph(_3dssg_graphs, scanscribe_graphs):
                                     torch.tensor(x_edge_idx, dtype=torch.int64).to('cuda'), torch.tensor(n_edge_idx, dtype=torch.int64).to('cuda'),
                                     torch.tensor(np.array(x_edge_ft), dtype=torch.float32).to('cuda'), torch.tensor(np.array(n_edge_ft), dtype=torch.float32).to('cuda'))
             
+            iter += 1
+            curr_batch += 1
+
             loss1 = 1 - F.cosine_similarity(x_p, p_p, dim=0) # [0, 2] 0 is good
             loss2 = 2 - (1 - F.cosine_similarity(x_n, n_n, dim=0)) # [0, 2] 2 is good
             loss3 = (1 - m_p) + m_n
@@ -108,11 +106,53 @@ def train_graph2graph(_3dssg_graphs, scanscribe_graphs):
                 curr_batch = 0
 
         wandb.log({"loss_per_epoch": epoch_loss.item()})
+        if epoch % 10 == 0:
+            evaluate_model(model, scanscribe_graphs_test, _3dssg_graphs, 'test')
+            print(f'x_p first 10: {x_p[:10]}')
+            print(f'x_n first 10: {x_n[:10]}')
+            print(f'p_p first 10: {p_p[:10]}')
+            print(f'n_n first 10: {n_n[:10]}')
+        print(f'Skipped {skipped} graphs because one of the subgraphs had too few edges')
     return model
 
 
-def evaluate_model(model, val_3dssg, val_scribe):
-    pass
+def evaluate_model(model, scanscribe, _3dssg, mode='test'):
+    model.eval()
+    valid = []
+    _3dssg = {k.split('_')[0]: _3dssg[k.split('_')[0]] for k in scanscribe}
+    with torch.no_grad():
+        for scribe_id in scanscribe:
+            match_prob = []
+            true_match = []
+            scribe_g = scanscribe[scribe_id]
+            for _3dssg_id in _3dssg:
+                _3dssg_g = _3dssg[_3dssg_id]
+                scribe_g_subgraph, _3dssg_g_subgraph = get_matching_subgraph(scribe_g, _3dssg_g)
+                if _3dssg_g_subgraph is None: _3dssg_g_subgraph = _3dssg_g
+                x_node_ft, x_edge_idx, x_edge_ft = scribe_g.to_pyg()
+                p_node_ft, p_edge_idx, p_edge_ft = _3dssg_g_subgraph.to_pyg()
+                x_p, p_p, m_p = model(torch.tensor(np.array(x_node_ft), dtype=torch.float32).to('cuda'), torch.tensor(np.array(p_node_ft), dtype=torch.float32).to('cuda'),
+                                        torch.tensor(x_edge_idx, dtype=torch.int64).to('cuda'), torch.tensor(p_edge_idx, dtype=torch.int64).to('cuda'),
+                                        torch.tensor(np.array(x_edge_ft), dtype=torch.float32).to('cuda'), torch.tensor(np.array(p_edge_ft), dtype=torch.float32).to('cuda'))
+                match_prob.append(m_p.item())
+                if (scribe_id.split('_')[0] == _3dssg_id): true_match.append(1)
+                else: true_match.append(0)
+            
+            # sort w indices
+            match_prob = np.array(match_prob)
+            true_match = np.array(true_match)
+            sorted_indices = np.argsort(match_prob)
+            match_prob = match_prob[sorted_indices]
+            true_match = true_match[sorted_indices]
+            print(f'match_prob: {match_prob}')
+            print(f'true_match: {true_match}')
+            if (true_match[-1] == 1): valid.append(1)
+            else: valid.append(0)
+    accuracy = np.mean(valid)
+    wandb.log({"accuracy_"+str(mode): accuracy})
+    print(f'accuracy: {accuracy}')
+    model.train()
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -123,6 +163,10 @@ if __name__ == '__main__':
     parser.add_argument('--N', type=int, default=3)
     parser.add_argument('--overlap_thr', type=float, default=0.8)
     parser.add_argument('--cos_sim_thr', type=float, default=0.5)
+    parser.add_argument('--batch_size', type=int, default=2)
+    parser.add_argument('--training_set_size', type=int, default=16)
+    parser.add_argument('--test_set_size', type=int, default=4)
+    parser.add_argument('--graph_size_min', type=int, default=6, help='minimum number of nodes in a graph')
     args = parser.parse_args()
 
     wandb.config = { "architecture": "self attention cross attention",
@@ -156,7 +200,17 @@ if __name__ == '__main__':
                                                                         graph=scanscribe_scenes[scene_id][txt_id], 
                                                                         embedding_type='word2vec')
             
-    model = train_graph2graph(_3dssg_graphs, scanscribe_graphs)
-    val_3dssg = None
-    val_scribe = None
-    evaluate_model(model, val_3dssg, val_scribe)
+    ######### Train / Test Split #########
+    args.graph_size_min = 6
+
+    # filter out graphs that are too small
+    scanscribe_graphs = {k: scanscribe_graphs[k] for k in scanscribe_graphs if len(scanscribe_graphs[k].nodes) >= args.graph_size_min}
+    print(f'num of graphs bigger than {args.graph_size_min}: {len(scanscribe_graphs)}')
+    # sample in scanscribe
+    scanscribe_graphs_train = {k: scanscribe_graphs[k] for k in random.sample(list(scanscribe_graphs), args.training_set_size)}
+    scanscribe_graphs_test = {k: scanscribe_graphs[k] for k in random.sample([s for s in scanscribe_graphs if s not in list(scanscribe_graphs_train.keys())], args.test_set_size)}
+
+    model = train_graph2graph(_3dssg_graphs, scanscribe_graphs_train)
+    # val_3dssg = None
+    # val_scribe = None
+    # evaluate_model(model, val_3dssg, val_scribe)
