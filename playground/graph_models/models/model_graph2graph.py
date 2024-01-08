@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import MessagePassing, TransformerConv, GCNConv
+from torch_geometric.nn import aggr, pool
 import sys
 
 sys.path.append('/home/julia/Documents/h_coarse_loc')
@@ -9,14 +10,20 @@ from playground.graph_models.src.utils import make_cross_graph
         
 class SimpleTConv(MessagePassing):
     def __init__(self, in_n, in_e, out_n):
-        super().__init__(aggr='add')
+        super().__init__(aggr=aggr.AttentionalAggregation(gate_nn=nn.Sequential(
+            nn.Linear(out_n, out_n),
+            nn.LeakyReLU(),
+            nn.Linear(out_n, out_n),
+            nn.LeakyReLU(),
+            nn.Linear(out_n, 1)
+        )))
         self.TConv = TransformerConv(in_n, out_n, concat=False, heads=2, dropout=0.5)
         self.act = nn.LeakyReLU()
 
     def forward(self, x, edge_index, edge_attr):
         x = self.TConv(x, edge_index)
         # x = self.propagate(edge_index, x=x)
-        # x = self.act(x)
+        x = self.act(x)
         return x
 
 class BigGNN(nn.Module):
@@ -38,6 +45,9 @@ class BigGNN(nn.Module):
             nn.Linear(300, 1),
             nn.Sigmoid()
         )
+
+        self.pooling = pool.SAGPooling(in_channels=out_n, ratio=0.5)
+
 
     def forward(self, x_1, x_2,
                       edge_idx_1, edge_idx_2,
