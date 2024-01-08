@@ -8,6 +8,7 @@ import sys
 
 sys.path.insert(0, '/home/julia/Documents/h_coarse_loc/playground')
 sys.path.insert(1, '/home/julia/Documents/h_coarse_loc/data/scanscribe/scanscribe_scripts')
+sys.path.insert(2, '/home/julia/Documents/h_coarse_loc/playground/graph_models/data_processing')
 from graph_models.src.utils import noun_in_list_of_nouns, vectorize_word, txt_to_json
 from create_text_embeddings import create_embedding
 
