@@ -10,20 +10,21 @@ from playground.graph_models.src.utils import make_cross_graph
         
 class SimpleTConv(MessagePassing):
     def __init__(self, in_n, in_e, out_n):
-        super().__init__(aggr=aggr.AttentionalAggregation(gate_nn=nn.Sequential(
-            nn.Linear(out_n, out_n),
-            nn.LeakyReLU(),
-            nn.Linear(out_n, out_n),
-            nn.LeakyReLU(),
-            nn.Linear(out_n, 1)
-        )))
-        self.TConv = TransformerConv(in_n, out_n, concat=False, heads=2, dropout=0.5)
+        # super().__init__(aggr=aggr.AttentionalAggregation(gate_nn=nn.Sequential(
+        #     nn.Linear(out_n, out_n),
+        #     nn.LeakyReLU(),
+        #     nn.Linear(out_n, out_n),
+        #     nn.LeakyReLU(),
+        #     nn.Linear(out_n, 1)
+        # )))
+        super().__init__(aggr='add')
+        self.TConv = TransformerConv(in_n, out_n, concat=False, heads=2, dropout=0.5, edge_dim=in_e)
         self.act = nn.LeakyReLU()
 
     def forward(self, x, edge_index, edge_attr):
-        x = self.TConv(x, edge_index)
+        x = self.TConv(x, edge_index, edge_attr)
         # x = self.propagate(edge_index, x=x)
-        x = self.act(x)
+        # x = self.act(x)
         return x
 
 class BigGNN(nn.Module):
@@ -38,15 +39,15 @@ class BigGNN(nn.Module):
         self.GCALayers = nn.ModuleList([SimpleTConv(in_n, in_e, out_n) for _ in range(N)])
 
         self.SceneText_MLP = nn.Sequential(
-            nn.Linear(300*2, 300), # TODO: input dimension is hardcoded now
+            nn.Linear(300*2, 600), # TODO: input dimension is hardcoded now
             nn.LeakyReLU(),
-            nn.Linear(300, 300),
+            nn.Linear(600, 300),
             nn.LeakyReLU(),
             nn.Linear(300, 1),
             nn.Sigmoid()
         )
 
-        self.pooling = pool.SAGPooling(in_channels=out_n, ratio=0.5)
+        # self.pooling = pool.SAGPooling(in_channels=out_n, ratio=0.5)
 
 
     def forward(self, x_1, x_2,
