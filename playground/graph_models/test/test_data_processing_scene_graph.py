@@ -9,7 +9,7 @@ import random
 
 random.seed(42)
 
-sys.path.append('/home/julia/Documents/h_coarse_loc/playground/graph_models/data_processing')
+sys.path.append('../data_processing') # sys.path.append('/home/julia/Documents/h_coarse_loc/playground/graph_models/data_processing')
 from scene_graph import SceneGraph
 
 scene_id = '1d234004-e280-2b1a-8ec8-560046b9fc96'

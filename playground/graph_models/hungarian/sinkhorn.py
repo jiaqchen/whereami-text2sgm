@@ -8,7 +8,7 @@ import numpy as np
 from sklearn.cluster import DBSCAN
 import copy
 
-sys.path.append('/home/julia/Documents/h_coarse_loc')
+sys.path.append('../../../') # sys.path.append('/home/julia/Documents/h_coarse_loc')
 from playground.graph_models.data_processing.sg_dataloader import SceneGraph
 
 config = {

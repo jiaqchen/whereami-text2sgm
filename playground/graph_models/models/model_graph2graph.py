@@ -5,7 +5,7 @@ from torch_geometric.nn import MessagePassing, TransformerConv, GCNConv
 from torch_geometric.nn import aggr, pool
 import sys
 
-sys.path.append('/home/julia/Documents/h_coarse_loc')
+sys.path.append('../../../') # sys.path.append('/home/julia/Documents/h_coarse_loc')
 from playground.graph_models.src.utils import make_cross_graph
         
 class SimpleTConv(MessagePassing):

@@ -45,7 +45,7 @@ def get_matching_subgraph(graph1, graph2):
         idx_mapping[i] = idx
 
     # Track the indices of the nodes that are matched, after combining into all_node_features
-    clustering = DBSCAN(eps=0.25, min_samples=1, metric='cosine').fit(all_node_features) # default 0.05
+    clustering = DBSCAN(eps=0.5, min_samples=1, metric='cosine').fit(all_node_features) # default 0.05
     clusters = {}
     for i, cluster in enumerate(clustering.labels_):
         if cluster in clusters:
@@ -70,6 +70,8 @@ def get_matching_subgraph(graph1, graph2):
     graph2_keep_nodes = list(set(graph2_keep_nodes))
     subgraph1 = graph1.get_subgraph(graph1_keep_nodes, return_graph=True)
     subgraph2 = graph2.get_subgraph(graph2_keep_nodes, return_graph=True)
+    # assert(subgraph1 is not None)
+    # assert(subgraph2 is not None)
 
     # if subgraph1 is not None and subgraph2 is not None:
     #     # Print graph nodes and subgraph nodes

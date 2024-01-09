@@ -17,7 +17,7 @@ class Node:
         assert(type(self.label_features) == list or type(self.label_features) == np.ndarray)
         self.features = self.set_features(label_features, attribute_features)
 
-    def set_features(self, labels, attributes, use_attributes=False):
+    def set_features(self, labels, attributes, use_attributes=True):
         if use_attributes: 
             attribute_features = np.zeros(len(labels))
             if attributes is not None and len(attributes) > 0:
