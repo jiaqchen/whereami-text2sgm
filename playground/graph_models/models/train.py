@@ -264,7 +264,7 @@ if __name__ == '__main__':
 
     ######## 3DSSG ######### 1335 3DSSG graphs
     _3dssg_graphs = {}
-    _3dssg_scenes = torch.load('/home/julia/Documents/h_coarse_loc/playground/graph_models/data_checkpoints/processed_data/3dssg/3dssg_graphs_processed_edgelists_relationembed.pt')
+    _3dssg_scenes = torch.load('../data_checkpoints/processed_data/3dssg/3dssg_graphs_processed_edgelists_relationembed.pt')
     for sceneid in tqdm(_3dssg_scenes):
         _3dssg_graphs[sceneid] = SceneGraph(sceneid, 
                                             graph_type='3dssg', 
@@ -274,7 +274,7 @@ if __name__ == '__main__':
 
     ######### ScanScribe ######### 218 ScanScribe scenes, more graphs
     scanscribe_graphs = {}
-    scanscribe_scenes = torch.load('/home/julia/Documents/h_coarse_loc/playground/graph_models/data_checkpoints/processed_data/scanscribe/scanscribe_cleaned_original_node_edge_features.pt')
+    scanscribe_scenes = torch.load('../data_checkpoints/processed_data/scanscribe/scanscribe_cleaned_original_node_edge_features.pt')
     for scene_id in tqdm(scanscribe_scenes):
         txtids = scanscribe_scenes[scene_id].keys()
         assert(len(set(txtids)) == len(txtids)) # no duplicate txtids
