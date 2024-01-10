@@ -55,8 +55,8 @@ def train_graph2graph(_3dssg_graphs, scanscribe_graphs):
                         scribe_g = scanscribe_graphs[batch[i]]
                         _3dssg_g = _3dssg_graphs[batch[j].split('_')[0]]
                         scribe_g_subgraph, _3dssg_g_subgraph = get_matching_subgraph(scribe_g, _3dssg_g)
-                        if _3dssg_g_subgraph is None: _3dssg_g_subgraph = _3dssg_g
-                        if scribe_g_subgraph is None: scribe_g_subgraph = scribe_g # TODO: why is scribe g None now?
+                        if _3dssg_g_subgraph is None or len(_3dssg_g_subgraph.nodes) <= 1: _3dssg_g_subgraph = _3dssg_g
+                        if scribe_g_subgraph is None or len(scribe_g_subgraph.nodes) <= 1: scribe_g_subgraph = scribe_g # TODO: why is scribe g None now?
 
                         x_node_ft, x_edge_idx, x_edge_ft = scribe_g_subgraph.to_pyg()
                         p_node_ft, p_edge_idx, p_edge_ft = _3dssg_g_subgraph.to_pyg()
@@ -118,9 +118,7 @@ def train_graph2graph(_3dssg_graphs, scanscribe_graphs):
                 scribe_g = scanscribe_graphs[scribe_id]
                 _3dssg_g = _3dssg_graphs[scribe_id.split('_')[0]]
                 
-                # TODO: 1) Implement contrastive loss instead of triplet loss
                 # TODO: 2) Finalize TEST datasets (2x)
-                # TODO: 3) Run things on euler
 
                 # # Get negative sample until overlap is less than args.overlap_thr
                 # # overlap_n, overlap_iter = 1.0, 0
@@ -134,16 +132,19 @@ def train_graph2graph(_3dssg_graphs, scanscribe_graphs):
                 #     # overlap_iter += 1 # just take a random one if no good overlap found after 10000 overlap_iter
                 _3dssg_g_n = _3dssg_graphs[np.random.choice([k.split('_')[0] for k in current_keys if k.split('_')[0] != scribe_id.split('_')[0]])]
                 scribe_g_subgraph_n, _3dssg_g_subgraph_n = get_matching_subgraph(scribe_g, _3dssg_g_n)
-                if _3dssg_g_subgraph_n is None: _3dssg_g_subgraph_n = _3dssg_g_n
+                if scribe_g_subgraph_n is None or len(scribe_g_subgraph_n.nodes) <= 1: scribe_g_subgraph_n = scribe_g
+                if _3dssg_g_subgraph_n is None or len(_3dssg_g_subgraph_n.nodes) <= 1: _3dssg_g_subgraph_n = _3dssg_g_n
 
                 scribe_g_subgraph, _3dssg_g_subgraph = get_matching_subgraph(scribe_g, _3dssg_g) # TODO: 3) check what the graph neural network is doing
                 # overlap = calculate_overlap(scribe_g_subgraph, _3dssg_g_subgraph, args.cos_sim_thr)
                 # if overlap < args.overlap_thr: print(f'Warning: positive pair overlap is less than threshold: {overlap}')
-
+                if _3dssg_g_subgraph is None or len(_3dssg_g_subgraph.nodes) <= 1: _3dssg_g_subgraph = _3dssg_g
+                if scribe_g_subgraph is None or len(scribe_g_subgraph.nodes) <= 1: scribe_g_subgraph = scribe_g
                 # x = torch.tensor([scribe_g.nodes[i].features for i in scribe_g.nodes]).to('cuda') # TODO: Why is x not the same as x_node_ft?
                 # p = torch.tensor([_3dssg_g.nodes[i].features for i in _3dssg_g.nodes]).to('cuda')
 
                 x_node_ft, x_edge_idx, x_edge_ft = scribe_g.to_pyg() # scribe_g.to_pyg()
+                xn_node_ft, xn_edge_idx, xn_edge_ft = scribe_g_subgraph_n.to_pyg() # TODO: change this so that model gets an equal chance with a subgraphed scribe negative example
                 p_node_ft, p_edge_idx, p_edge_ft = _3dssg_g_subgraph.to_pyg() # _3dssg_g.to_pyg()
                 n_node_ft, n_edge_idx, n_edge_ft = _3dssg_g_subgraph_n.to_pyg()
                 if len(x_edge_idx[0]) <= 2 or len(p_edge_idx[0]) <= 2 or len(n_edge_idx[0]) <= 2: 
@@ -206,7 +207,7 @@ def evaluate_model(model, scanscribe, _3dssg, mode='test'):
             for _3dssg_id in _3dssg:
                 _3dssg_g = _3dssg[_3dssg_id]
                 scribe_g_subgraph, _3dssg_g_subgraph = get_matching_subgraph(scribe_g, _3dssg_g)
-                if _3dssg_g_subgraph is None: _3dssg_g_subgraph = _3dssg_g
+                if _3dssg_g_subgraph is None or len(_3dssg_g_subgraph.nodes) <= 1: _3dssg_g_subgraph = _3dssg_g
                 x_node_ft, x_edge_idx, x_edge_ft = scribe_g.to_pyg()
                 p_node_ft, p_edge_idx, p_edge_ft = _3dssg_g_subgraph.to_pyg()
                 x_p, p_p, m_p = model(torch.tensor(np.array(x_node_ft), dtype=torch.float32).to('cuda'), torch.tensor(np.array(p_node_ft), dtype=torch.float32).to('cuda'),
@@ -286,6 +287,12 @@ if __name__ == '__main__':
                                                                         graph=scanscribe_scenes[scene_id][txt_id], 
                                                                         embedding_type='word2vec',
                                                                         use_attributes=args.use_attributes)
+            
+    ######### Removing some graphs that could be too small #########
+    scenes_to_remove = [scene_id for scene_id in _3dssg_graphs if len(_3dssg_graphs[scene_id].edge_idx[0]) <= 3 or len(_3dssg_graphs[scene_id].nodes) <= 3]
+    scanscribe_scenes_to_remove = [scene_id for scene_id in scanscribe_graphs if scene_id.split('_')[0] in scenes_to_remove]
+    for s in scenes_to_remove: del _3dssg_graphs[s]
+    for s in scanscribe_scenes_to_remove: del scanscribe_graphs[s]
             
     ######### Train / Test Split #########
     # filter out graphs that are too small

@@ -34,15 +34,15 @@ class Edge:
         self.features = features
 
 class SceneGraph:
-    def __init__(self, scene_id, txt_id=None, graph_type=None, graph=None, max_dist=None, embedding_type='ada', ues_attributes=True):
+    def __init__(self, scene_id, txt_id=None, graph_type=None, graph=None, max_dist=None, embedding_type='ada', use_attributes=True):
         self.scene_id = scene_id
         if graph_type == '3dssg':
-            self.nodes = self.extract_nodes_3dssg(graph['objects'], ues_attributes, embedding_type)
+            self.nodes = self.extract_nodes_3dssg(graph['objects'], use_attributes, embedding_type)
             self.edge_idx, self.edge_relations, self.edge_features = self.extract_edges_3dssg(graph['edge_lists'], max_dist, embedding_type)
             assert(len(self.edge_idx[0]) == len(self.edge_features))
             assert(check_valid_graph(self.nodes, self.edge_idx))
         elif graph_type == 'scanscribe':
-            self.nodes = self.extract_nodes_scanscribe(graph['nodes'], ues_attributes, embedding_type)
+            self.nodes = self.extract_nodes_scanscribe(graph['nodes'], use_attributes, embedding_type)
             self.edge_idx, self.edge_relations, self.edge_features = self.extract_edges_scanscribe(graph['edges'], embedding_type)
             assert(len(self.edge_idx[0]) == len(self.edge_features))
             assert(check_valid_graph(self.nodes, self.edge_idx))
