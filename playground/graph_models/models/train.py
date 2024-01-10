@@ -248,9 +248,10 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=2)
     parser.add_argument('--training_set_size', type=int, default=16)
     parser.add_argument('--test_set_size', type=int, default=16)
-    parser.add_argument('--graph_size_min', type=int, default=6, help='minimum number of nodes in a graph')
+    parser.add_argument('--graph_size_min', type=int, default=5, help='minimum number of nodes in a graph')
     parser.add_argument('--contrastive_loss', type=bool, default=False)
     parser.add_argument('--valid_top_k', nargs='+', type=int, default=[1, 2, 4, 8])
+    parser.add_argument('--use_attributes', type=bool, default=True)
     args = parser.parse_args()
 
     wandb.config = { "architecture": "self attention cross attention",
@@ -267,7 +268,8 @@ if __name__ == '__main__':
         _3dssg_graphs[sceneid] = SceneGraph(sceneid, 
                                             graph_type='3dssg', 
                                             graph=_3dssg_scenes[sceneid], 
-                                            max_dist=1.0, embedding_type='word2vec')
+                                            max_dist=1.0, embedding_type='word2vec',
+                                            use_attributes=args.use_attributes)
 
     ######### ScanScribe ######### 218 ScanScribe scenes, more graphs
     scanscribe_graphs = {}
@@ -282,11 +284,10 @@ if __name__ == '__main__':
                                                                         txt_id=txt_id,
                                                                         graph_type='scanscribe', 
                                                                         graph=scanscribe_scenes[scene_id][txt_id], 
-                                                                        embedding_type='word2vec')
+                                                                        embedding_type='word2vec',
+                                                                        use_attributes=args.use_attributes)
             
     ######### Train / Test Split #########
-    args.graph_size_min = 6
-
     # filter out graphs that are too small
     scanscribe_graphs = {k: scanscribe_graphs[k] for k in scanscribe_graphs if len(scanscribe_graphs[k].nodes) >= args.graph_size_min}
     print(f'num of graphs bigger than {args.graph_size_min}: {len(scanscribe_graphs)}')

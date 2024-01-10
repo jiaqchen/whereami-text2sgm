@@ -7,7 +7,7 @@ random.seed(3)
 from scene_graph_utils import check_valid_graph
 
 class Node:
-    def __init__(self, idx, label_features, attribute_features, label=None, attributes=None):
+    def __init__(self, idx, label_features, attribute_features, use_attributes, label=None, attributes=None):
         self.idx = idx
         self.label_features = label_features
         self.attribute_features = attribute_features
@@ -15,9 +15,9 @@ class Node:
         self.attributes = attributes
         assert(type(self.attribute_features) == list)
         assert(type(self.label_features) == list or type(self.label_features) == np.ndarray)
-        self.features = self.set_features(label_features, attribute_features)
+        self.features = self.set_features(label_features, attribute_features, use_attributes=use_attributes)
 
-    def set_features(self, labels, attributes, use_attributes=True):
+    def set_features(self, labels, attributes, use_attributes):
         if use_attributes: 
             attribute_features = np.zeros(len(labels))
             if attributes is not None and len(attributes) > 0:
@@ -34,15 +34,15 @@ class Edge:
         self.features = features
 
 class SceneGraph:
-    def __init__(self, scene_id, txt_id=None, graph_type=None, graph=None, max_dist=None, embedding_type='ada'):
+    def __init__(self, scene_id, txt_id=None, graph_type=None, graph=None, max_dist=None, embedding_type='ada', ues_attributes=True):
         self.scene_id = scene_id
         if graph_type == '3dssg':
-            self.nodes = self.extract_nodes_3dssg(graph['objects'], embedding_type)
+            self.nodes = self.extract_nodes_3dssg(graph['objects'], ues_attributes, embedding_type)
             self.edge_idx, self.edge_relations, self.edge_features = self.extract_edges_3dssg(graph['edge_lists'], max_dist, embedding_type)
             assert(len(self.edge_idx[0]) == len(self.edge_features))
             assert(check_valid_graph(self.nodes, self.edge_idx))
         elif graph_type == 'scanscribe':
-            self.nodes = self.extract_nodes_scanscribe(graph['nodes'], embedding_type)
+            self.nodes = self.extract_nodes_scanscribe(graph['nodes'], ues_attributes, embedding_type)
             self.edge_idx, self.edge_relations, self.edge_features = self.extract_edges_scanscribe(graph['edges'], embedding_type)
             assert(len(self.edge_idx[0]) == len(self.edge_features))
             assert(check_valid_graph(self.nodes, self.edge_idx))
@@ -54,23 +54,23 @@ class SceneGraph:
             self.scene_id = scene_id
             self.txt_id = txt_id
 
-    def extract_nodes_3dssg(self, objects, embedding_type='ada'):
+    def extract_nodes_3dssg(self, objects, use_attributes, embedding_type='ada'):
         nodes = {}
         for objid in objects:
             obj = objects[objid]
             attributes_list = [a for attr in obj['attributes_' + embedding_type] for a in obj['attributes_' + embedding_type][attr]]
             if len(attributes_list): assert(len(attributes_list[0]) == len(obj['label_' + embedding_type]))
-            node = Node(int(obj['id']), obj['label_' + embedding_type], attributes_list, 
+            node = Node(int(obj['id']), obj['label_' + embedding_type], attributes_list, use_attributes=use_attributes,
                         label=obj['label'], attributes=obj['attributes'])
             nodes[int(obj['id'])] = node
         return nodes
     
-    def extract_nodes_scanscribe(self, objects, embedding_type='ada'):
+    def extract_nodes_scanscribe(self, objects, use_attributes, embedding_type='ada'):
         nodes = {}
         for obj in objects:
             attributes_list = obj['attributes_' + embedding_type]['all']
             if len(attributes_list): assert(len(attributes_list[0]) == len(obj['label_' + embedding_type]))
-            node = Node(int(obj['id']), obj['label_' + embedding_type], attributes_list, 
+            node = Node(int(obj['id']), obj['label_' + embedding_type], attributes_list, use_attributes=use_attributes,
                         label=obj['label'], attributes=obj['attributes'])
             nodes[int(obj['id'])] = node
         return nodes
