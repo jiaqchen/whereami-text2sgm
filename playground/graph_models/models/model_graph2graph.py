@@ -24,7 +24,7 @@ class SimpleTConv(MessagePassing):
     def forward(self, x, edge_index, edge_attr):
         x = self.TConv(x, edge_index, edge_attr)
         # x = self.propagate(edge_index, x=x)
-        # x = self.act(x)
+        x = self.act(x)
         return x
 
 class BigGNN(nn.Module):
