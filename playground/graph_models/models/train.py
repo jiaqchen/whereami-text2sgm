@@ -103,7 +103,8 @@ def train_graph2graph(_3dssg_graphs, scanscribe_graphs):
                 
             wandb.log({"loss_per_epoch": loss.item()})
             if epoch % 10 == 0:
-                evaluate_model(model, scanscribe_graphs_test, _3dssg_graphs, 'test')
+                # evaluate_model(model, scanscribe_graphs_test, _3dssg_graphs, 'test')
+                evaluate_model(model, h_graphs_test, _3dssg_graphs, 'test_human')
                 print(f'x_p first 10: {x_p[:10]}')
                 print(f'p_p first 10: {p_p[:10]}')
             print(f'Skipped {skipped} graphs out of {total} because one of the subgraphs had too few edges')
@@ -117,8 +118,6 @@ def train_graph2graph(_3dssg_graphs, scanscribe_graphs):
             for scribe_id in scanscribe_graphs:
                 scribe_g = scanscribe_graphs[scribe_id]
                 _3dssg_g = _3dssg_graphs[scribe_id.split('_')[0]]
-                
-                # TODO: 2) Finalize TEST datasets (2x)
 
                 # # Get negative sample until overlap is less than args.overlap_thr
                 # # overlap_n, overlap_iter = 1.0, 0
@@ -192,12 +191,11 @@ def train_graph2graph(_3dssg_graphs, scanscribe_graphs):
             print(f'Skipped {skipped} graphs because one of the subgraphs had too few edges')
         return model
 
-
 def evaluate_model(model, scanscribe, _3dssg, mode='test'):
     model.eval()
     valid_top_k = args.valid_top_k
     valid = {k: [] for k in valid_top_k}
-    # TODO: Implement with top k option (1, 2, 4, 8) out of a test size of 32
+
     _3dssg = {k.split('_')[0]: _3dssg[k.split('_')[0]] for k in scanscribe}
     with torch.no_grad():
         for scribe_id in scanscribe:
@@ -235,7 +233,6 @@ def evaluate_model(model, scanscribe, _3dssg, mode='test'):
     for k in accuracy: wandb.log({f'accuracy_{str(mode)}_top{k}': accuracy[k]})
     print(f'accuracies: {accuracy}')
     model.train()
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -288,11 +285,25 @@ if __name__ == '__main__':
                                                                         embedding_type='word2vec',
                                                                         use_attributes=args.use_attributes)
             
+    ######### Human annotated test set #########
+    h_graphs_test = torch.load('../data_checkpoints/processed_data/human/human_graphs_processed.pt')
+    h_graphs_remove = [k for k in h_graphs_test if k.split('_')[0] not in _3dssg_graphs]
+    print(f'to remove: {h_graphs_remove}')
+    for k in h_graphs_remove: del h_graphs_test[k]
+    assert(all([k.split('_')[0] in _3dssg_graphs for k in h_graphs_test]))
+    h_graphs_test = {k: SceneGraph(k.split('_')[0], 
+                                   graph_type='human',
+                                   graph=h_graphs_test[k],
+                                   embedding_type='word2vec',
+                                   use_attributes=args.use_attributes) for k in h_graphs_test}
+            
     ######### Removing some graphs that could be too small #########
     scenes_to_remove = [scene_id for scene_id in _3dssg_graphs if len(_3dssg_graphs[scene_id].edge_idx[0]) <= 3 or len(_3dssg_graphs[scene_id].nodes) <= 3]
     scanscribe_scenes_to_remove = [scene_id for scene_id in scanscribe_graphs if scene_id.split('_')[0] in scenes_to_remove]
+    human_scenes_to_remove = [scene_id for scene_id in h_graphs_test if scene_id.split('_')[0] in scenes_to_remove]
     for s in scenes_to_remove: del _3dssg_graphs[s]
     for s in scanscribe_scenes_to_remove: del scanscribe_graphs[s]
+    for s in human_scenes_to_remove: del h_graphs_test[s]
             
     ######### Train / Test Split #########
     # filter out graphs that are too small
