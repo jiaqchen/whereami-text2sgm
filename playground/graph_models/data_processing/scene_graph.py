@@ -41,7 +41,7 @@ class SceneGraph:
             self.edge_idx, self.edge_relations, self.edge_features = self.extract_edges_3dssg(graph['edge_lists'], max_dist, embedding_type)
             assert(len(self.edge_idx[0]) == len(self.edge_features))
             assert(check_valid_graph(self.nodes, self.edge_idx))
-        elif graph_type == 'scanscribe':
+        elif graph_type == 'scanscribe' or graph_type == 'human':
             self.nodes = self.extract_nodes_scanscribe(graph['nodes'], use_attributes, embedding_type)
             self.edge_idx, self.edge_relations, self.edge_features = self.extract_edges_scanscribe(graph['edges'], embedding_type)
             assert(len(self.edge_idx[0]) == len(self.edge_features))
