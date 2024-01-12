@@ -119,24 +119,12 @@ def train_graph2graph(_3dssg_graphs, scanscribe_graphs):
                 scribe_g = scanscribe_graphs[scribe_id]
                 _3dssg_g = _3dssg_graphs[scribe_id.split('_')[0]]
 
-                # # Get negative sample until overlap is less than args.overlap_thr
-                # # overlap_n, overlap_iter = 1.0, 0
-                # # while (overlap_n > args.overlap_thr and overlap_iter < 1000):
-                # scribe_g_subgraph_n, _3dssg_g_subgraph_n = None, None
-                # while (scribe_g_subgraph_n is None or _3dssg_g_subgraph_n is None):
-                #     # _3dssg_g_n = _3dssg_graphs[np.random.choice(list([k for k in _3dssg_graphs if k != scribe_id.split('_')[0]]))]
-                #     _3dssg_g_n = _3dssg_graphs[np.random.choice([k.split('_')[0] for k in current_keys if k.split('_')[0] != scribe_id.split('_')[0]])]
-                #     scribe_g_subgraph_n, _3dssg_g_subgraph_n = get_matching_subgraph(scribe_g, _3dssg_g_n)
-                #     # overlap_n = calculate_overlap(scribe_g_subgraph_n, _3dssg_g_subgraph_n, args.cos_sim_thr)
-                #     # overlap_iter += 1 # just take a random one if no good overlap found after 10000 overlap_iter
                 _3dssg_g_n = _3dssg_graphs[np.random.choice([k.split('_')[0] for k in current_keys if k.split('_')[0] != scribe_id.split('_')[0]])]
                 scribe_g_subgraph_n, _3dssg_g_subgraph_n = get_matching_subgraph(scribe_g, _3dssg_g_n)
                 if scribe_g_subgraph_n is None or len(scribe_g_subgraph_n.nodes) <= 1: scribe_g_subgraph_n = scribe_g
                 if _3dssg_g_subgraph_n is None or len(_3dssg_g_subgraph_n.nodes) <= 1: _3dssg_g_subgraph_n = _3dssg_g_n
 
                 scribe_g_subgraph, _3dssg_g_subgraph = get_matching_subgraph(scribe_g, _3dssg_g) # TODO: 3) check what the graph neural network is doing
-                # overlap = calculate_overlap(scribe_g_subgraph, _3dssg_g_subgraph, args.cos_sim_thr)
-                # if overlap < args.overlap_thr: print(f'Warning: positive pair overlap is less than threshold: {overlap}')
                 if _3dssg_g_subgraph is None or len(_3dssg_g_subgraph.nodes) <= 1: _3dssg_g_subgraph = _3dssg_g
                 if scribe_g_subgraph is None or len(scribe_g_subgraph.nodes) <= 1: scribe_g_subgraph = scribe_g
                 # x = torch.tensor([scribe_g.nodes[i].features for i in scribe_g.nodes]).to('cuda') # TODO: Why is x not the same as x_node_ft?
@@ -226,10 +214,8 @@ def evaluate_model(model, scanscribe, _3dssg, mode='test'):
             for k in valid_top_k:
                 if (1 in true_match[-k:]): valid[k].append(1)
                 else: valid[k].append(0)
-            # if (true_match[-1] == 1): valid.append(1)
-            # else: valid.append(0)
+
     accuracy = {k: np.mean(valid[k]) for k in valid_top_k}
-    # accuracy = np.mean(valid)
     for k in accuracy: wandb.log({f'accuracy_{str(mode)}_top{k}': accuracy[k]})
     print(f'accuracies: {accuracy}')
     model.train()
