@@ -1,7 +1,10 @@
 import pytest
 import torch
+import sys
 
-from playground.graph_model.src.utils import noun_in_list_of_nouns, vectorize_word, recover_word, print_closest_words, make_cross_graph, mask_node
+sys.path.append('../../../') # sys.path.append('/home/julia/Documents/h_coarse_loc/playground/graph_models/data_processing')
+from playground.graph_models.src.utils import noun_in_list_of_nouns, vectorize_word, recover_word, print_closest_words, make_cross_graph, mask_node
+from playground.graph_models.models.train_utils import k_fold
 
 ####################### SPACY UTILS #######################
 
@@ -46,3 +49,19 @@ def test_mask_node():
     # Mask everything with 0's
     x_masked = mask_node(x, p=1)
     assert(torch.all(torch.eq(x_masked, torch.zeros((5, 300)))))
+
+####################### TRAIN UTILS #######################
+
+def test_k_fold():
+
+    dataset = [i for i in range(20)]
+    train_indices, test_indices, val_indices = k_fold(dataset, 5)
+    assert(len(train_indices) == 5)
+    assert(len(test_indices) == 5)
+    assert(len(val_indices) == 5)
+    print(f'train_indies: {train_indices}')
+    print(f'test_indies: {test_indices}')
+    print(f'val_indies: {val_indices}')
+
+if __name__ == '__main__':
+    test_k_fold()
