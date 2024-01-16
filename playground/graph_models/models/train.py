@@ -566,12 +566,12 @@ if __name__ == '__main__':
     if args.training_with_cross_val:
         model = BigGNN(args.N).to('cuda')
         optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-        model, loss_mean, acc_mean, acc_std = train_with_cross_val(database_3dssg=_3dssg_graphs, 
-                                                                   dataset=scanscribe_graphs,
-                                                                   model=model,
-                                                                   folds=args.folds,
-                                                                   epochs=args.epoch,
-                                                                   batch_size=args.batch_size)
+        model = train_with_cross_val(database_3dssg=_3dssg_graphs, 
+                                        dataset=scanscribe_graphs,
+                                        model=model,
+                                        folds=args.folds,
+                                        epochs=args.epoch,
+                                        batch_size=args.batch_size)
     
     ######### SAVE SOME THINGS #########
     model_name = 'model_100epochs'
