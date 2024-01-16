@@ -175,7 +175,7 @@ def eval_loss(model, database_3dssg, dataset, fold):
     model.train()
     return torch.tensor(loss_across_batches).mean().item()
 
-def eval_acc(model, database_3dssg, dataset, fold, mode='scanscribe'):
+def eval_acc(model, database_3dssg, dataset, fold, mode='scanscribe', num_test_mini_sets=1000):
     model.eval()
     valid_top_k = args.valid_top_k
     valid = {k: [] for k in valid_top_k}
@@ -186,12 +186,11 @@ def eval_acc(model, database_3dssg, dataset, fold, mode='scanscribe'):
         if g.scene_id not in buckets: buckets[g.scene_id] = []
         buckets[g.scene_id].append(idx)
 
-    sampled_test_indices = [[random.sample(buckets[g], 1)[0] for g in random.sample(list(buckets.keys()), 10)] for _ in range(30)]
+    sampled_test_indices = [[random.sample(buckets[g], 1)[0] for g in random.sample(list(buckets.keys()), 10)] for _ in range(num_test_mini_sets)]
     assert(len(sampled_test_indices[0]) == 10)
-    assert(len(sampled_test_indices) == 30)
+    assert(len(sampled_test_indices) == num_test_mini_sets)
     assert(len(dataset) > 10)
 
-    print(f'sampled_test_indices: {sampled_test_indices}')
     for t_set in sampled_test_indices:
         true_match = []
         match_prob = []
@@ -218,8 +217,8 @@ def eval_acc(model, database_3dssg, dataset, fold, mode='scanscribe'):
         sorted_indices = np.argsort(match_prob)
         match_prob = match_prob[sorted_indices]
         true_match = true_match[sorted_indices]
-        print(f'match_prob: {match_prob}')
-        print(f'true_match: {true_match}')
+        # print(f'match_prob: {match_prob}')
+        # print(f'true_match: {true_match}')
         for k in valid_top_k:
             if (1 in true_match[-k:]): valid[k].append(1)
             else: valid[k].append(0)
@@ -236,10 +235,15 @@ def eval_acc(model, database_3dssg, dataset, fold, mode='scanscribe'):
 def train_with_cross_val(dataset, database_3dssg, model, folds, epochs, batch_size):
     # assert(type(dataset) == list)
     val_losses, accs, durations = [], [], []
+    scanscribe_test_accs, human_test_accs = [], []
     for fold, (train_idx, test_idx, val_idx) in enumerate(zip(*k_fold(dataset, folds))):
         train_dataset = [dataset[i] for i in train_idx]
         test_dataset = [dataset[i] for i in test_idx]
         val_dataset = [dataset[i] for i in val_idx]
+
+        print(f'length of training set in fold {fold}: {len(train_dataset)}')
+        print(f'length of validation set in fold {fold}: {len(val_dataset)}')
+        print(f'length of test set in fold {fold}: {len(test_dataset)}')
         
         # model.to(device).reset_parameters()
         model = BigGNN(args.N).to('cuda') # for now because reset_parameters() was not working
@@ -254,7 +258,7 @@ def train_with_cross_val(dataset, database_3dssg, model, folds, epochs, batch_si
 
         # t_start = time.perf_counter()
         for epoch in tqdm(range(1, epochs + 1)):
-            train_loss = train(model=model, 
+            _ = train(model=model, 
                                optimizer=optimizer, 
                                database_3dssg=database_3dssg, 
                                dataset=train_dataset, 
@@ -267,11 +271,12 @@ def train_with_cross_val(dataset, database_3dssg, model, folds, epochs, batch_si
             accs.append(eval_acc(model=model,
                                  database_3dssg=database_3dssg, 
                                  dataset=test_dataset,
-                                 fold=fold))
+                                 fold=fold,
+                                 num_test_mini_sets=30))
             eval_info = {
                 'fold': fold,
                 'epoch': epoch,
-                'train_loss': train_loss,
+                'train_loss': _,
                 'val_loss': val_losses[-1],
                 'test_acc_from_train': accs[-1],
             }
@@ -285,20 +290,32 @@ def train_with_cross_val(dataset, database_3dssg, model, folds, epochs, batch_si
 
         # t_end = time.perf_counter()
         # durations.append(t_end - t_start)
+        if (args.skip_k_fold): break # only use the first fold to speed up training, but we still see a validation
 
-    loss, acc, duration = torch.tensor(val_losses), torch.tensor(accs), torch.tensor(durations)
-    loss, acc = loss.view(folds, epochs), acc.view(folds, epochs)
-    loss, argmin = loss.min(dim=1)
-    acc = acc[torch.arange(folds, dtype=torch.long), argmin]
+    # loss, acc, duration = torch.tensor(val_losses), torch.tensor(accs), torch.tensor(durations)
+    # loss, acc = loss.view(folds, epochs), acc.view(folds, epochs)
+    # loss, argmin = loss.min(dim=1)
+    # acc = acc[torch.arange(folds, dtype=torch.long), argmin]
 
-    loss_mean = loss.mean().item()
-    acc_mean = acc.mean().item()
-    acc_std = acc.std().item()
-    duration_mean = duration.mean().item()
-    print(f'Val Loss: {loss_mean:.4f}, Test Accuracy: {acc_mean:.3f} '
-          f'± {acc_std:.3f}, Duration: {duration_mean:.3f}')
+    # loss_mean = loss.mean().item()
+    # acc_mean = acc.mean().item()
+    # acc_std = acc.std().item()
+    # duration_mean = duration.mean().item()
+    # print(f'Val Loss: {loss_mean:.4f}, Test Accuracy: {acc_mean:.3f} '
+    #       f'± {acc_std:.3f}, Duration: {duration_mean:.3f}')
+    
+    scanscribe_test_accs.append(eval_acc(model=model,
+                                    database_3dssg=_3dssg_graphs,
+                                    dataset=list(scanscribe_graphs_test.values()),
+                                    fold=None,
+                                    mode='scanscribe_test'))
+    human_test_accs.append(eval_acc(model=model,
+                                    database_3dssg=_3dssg_graphs,
+                                    dataset=list(human_graphs_test.values()),
+                                    fold=None,
+                                    mode='human_test')) 
 
-    return model, loss_mean, acc_mean, acc_std
+    return model#, loss_mean, acc_mean, acc_std
 
 ###################################### OLD ######################################
 
@@ -511,6 +528,7 @@ if __name__ == '__main__':
     parser.add_argument('--use_attributes', type=bool, default=True)
     parser.add_argument('--training_with_cross_val', type=bool, default=True)
     parser.add_argument('--folds', type=int, default=5)
+    parser.add_argument('--skip_k_fold', type=bool, default=False)
     args = parser.parse_args()
 
     wandb.config = { "architecture": "self attention cross attention",
@@ -556,13 +574,17 @@ if __name__ == '__main__':
                                                                    batch_size=args.batch_size)
     
     ######### SAVE SOME THINGS #########
-    model_name = 'model'
+    model_name = 'model_100epochs'
     args_str = ''
     for arg in vars(args): args_str += f'\n{arg}_{getattr(args, arg)}'
     with open(f'../model_checkpoints/graph2graph/{model_name}_args.txt', 'w') as f: f.write(args_str)
     torch.save(model.state_dict(), f'../model_checkpoints/graph2graph/{model_name}.pt')
     ####################################
 
+    # model = BigGNN(args.N).to('cuda')
+    # model.load_state_dict(torch.load('../model_checkpoints/graph2graph/model.pt'))
+
+    t_start = time.perf_counter()
     # Final test sets evaluation
     top_1_avg_scanscribe_test = eval_acc(model=model,
                                      database_3dssg=_3dssg_graphs,
@@ -574,5 +596,7 @@ if __name__ == '__main__':
                                      dataset=list(human_graphs_test.values()),
                                      fold=None,
                                      mode='human_test')
+    t_end = time.perf_counter()
+    print(f'Time elapsed in minutes: {(t_end - t_start) / 60}')
     
     print(f'Final test set accuracies: scanscribe {top_1_avg_scanscribe_test}, human {top_1_avg_human_test}')
