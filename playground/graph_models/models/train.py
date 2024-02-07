@@ -553,59 +553,59 @@ if __name__ == '__main__':
                 mode=args.mode,
                 config=wandb.config)
 
-    _3dssg_graphs = torch.load('../data_checkpoints/processed_data/training/3dssg_graphs_train_graph_min_size_4.pt')                # Len 1323   
-    # _3dssg_graphs = {}
-    # _3dssg_scenes = torch.load('../data_checkpoints/processed_data/3dssg/3dssg_graphs_processed_edgelists_relationembed.pt')
-    # for sceneid in tqdm(_3dssg_scenes):
-    #     _3dssg_graphs[sceneid] = SceneGraph(sceneid, 
-    #                                         graph_type='3dssg', 
-    #                                         graph=_3dssg_scenes[sceneid], 
-    #                                         max_dist=1.0, embedding_type='word2vec',
-    #                                         use_attributes=args.use_attributes)     
+    # _3dssg_graphs = torch.load('../data_checkpoints/processed_data/training/3dssg_graphs_train_graph_min_size_4.pt')                # Len 1323   
+    _3dssg_graphs = {}
+    _3dssg_scenes = torch.load('../data_checkpoints/processed_data/3dssg/3dssg_graphs_processed_edgelists_relationembed.pt')
+    for sceneid in tqdm(_3dssg_scenes):
+        _3dssg_graphs[sceneid] = SceneGraph(sceneid, 
+                                            graph_type='3dssg', 
+                                            graph=_3dssg_scenes[sceneid], 
+                                            max_dist=1.0, embedding_type='word2vec',
+                                            use_attributes=args.use_attributes)     
 
 
-    scanscribe_graphs = torch.load('../data_checkpoints/processed_data/training/scanscribe_graphs_train_graph_min_size_4.pt')       # 80% split len 2847
-    # scanscribe_graphs = {}
-    # scanscribe_scenes = torch.load('../data_checkpoints/processed_data/training/scanscribe_graphs_train_final_no_graph_min.pt')
-    # for scene_id in tqdm(scanscribe_scenes):
-    #     txtids = scanscribe_scenes[scene_id].keys()
-    #     assert(len(set(txtids)) == len(txtids)) # no duplicate txtids
-    #     assert(len(set(txtids)) == len(range(max([int(id) for id in txtids]) + 1))) # no missing txtids
-    #     for txt_id in txtids:
-    #         txt_id_padded = str(txt_id).zfill(5)
-    #         scanscribe_graphs[scene_id + '_' + txt_id_padded] = SceneGraph(scene_id,
-    #                                                                     txt_id=txt_id,
-    #                                                                     graph_type='scanscribe', 
-    #                                                                     graph=scanscribe_scenes[scene_id][txt_id], 
-    #                                                                     embedding_type='word2vec',
-    #                                                                     use_attributes=args.use_attributes)
+    # scanscribe_graphs = torch.load('../data_checkpoints/processed_data/training/scanscribe_graphs_train_graph_min_size_4.pt')       # 80% split len 2847
+    scanscribe_graphs = {}
+    scanscribe_scenes = torch.load('../data_checkpoints/processed_data/training/scanscribe_graphs_train_final_no_graph_min.pt')
+    for scene_id in tqdm(scanscribe_scenes):
+        txtids = scanscribe_scenes[scene_id].keys()
+        assert(len(set(txtids)) == len(txtids)) # no duplicate txtids
+        assert(len(set(txtids)) == len(range(max([int(id) for id in txtids]) + 1))) # no missing txtids
+        for txt_id in txtids:
+            txt_id_padded = str(txt_id).zfill(5)
+            scanscribe_graphs[scene_id + '_' + txt_id_padded] = SceneGraph(scene_id,
+                                                                        txt_id=txt_id,
+                                                                        graph_type='scanscribe', 
+                                                                        graph=scanscribe_scenes[scene_id][txt_id], 
+                                                                        embedding_type='word2vec',
+                                                                        use_attributes=args.use_attributes)
 
     # preprocess so that the graphs all at least 1 edge
     print(f'number of scanscribe graphs before removing graphs with 1 edge: {len(scanscribe_graphs)}')
     to_remove = []
     for g in scanscribe_graphs:
-        if len(scanscribe_graphs[g].edge_idx[0]) <= 1:
+        if len(scanscribe_graphs[g].edge_idx[0]) <= 1: # TODO: turn into strict inequality
             to_remove.append(g)
     for g in to_remove: del scanscribe_graphs[g]
     print(f'number of scanscribe graphs after removing graphs with 1 edge: {len(scanscribe_graphs)}')
     scanscribe_graphs = list(scanscribe_graphs.values()) # NOTE
     args.training_set_size = len(scanscribe_graphs)
 
-    scanscribe_graphs_test = torch.load('../data_checkpoints/processed_data/testing/scanscribe_graphs_test_graph_min_size_4.pt')    # 20% split len 712
-    # scanscribe_graphs_test = {}
-    # scanscribe_scenes = torch.load('../data_checkpoints/processed_data/testing/scanscribe_graphs_test_final_no_graph_min.pt')
-    # for scene_id in tqdm(scanscribe_scenes):
-    #     txtids = scanscribe_scenes[scene_id].keys()
-    #     assert(len(set(txtids)) == len(txtids)) # no duplicate txtids
-    #     assert(len(set(txtids)) == len(range(max([int(id) for id in txtids]) + 1))) # no missing txtids
-    #     for txt_id in txtids:
-    #         txt_id_padded = str(txt_id).zfill(5)
-    #         scanscribe_graphs_test[scene_id + '_' + txt_id_padded] = SceneGraph(scene_id,
-    #                                                                     txt_id=txt_id,
-    #                                                                     graph_type='scanscribe', 
-    #                                                                     graph=scanscribe_scenes[scene_id][txt_id], 
-    #                                                                     embedding_type='word2vec',
-    #                                                                     use_attributes=args.use_attributes)
+    # scanscribe_graphs_test = torch.load('../data_checkpoints/processed_data/testing/scanscribe_graphs_test_graph_min_size_4.pt')    # 20% split len 712
+    scanscribe_graphs_test = {}
+    scanscribe_scenes = torch.load('../data_checkpoints/processed_data/testing/scanscribe_graphs_test_final_no_graph_min.pt')
+    for scene_id in tqdm(scanscribe_scenes):
+        txtids = scanscribe_scenes[scene_id].keys()
+        assert(len(set(txtids)) == len(txtids)) # no duplicate txtids
+        assert(len(set(txtids)) == len(range(max([int(id) for id in txtids]) + 1))) # no missing txtids
+        for txt_id in txtids:
+            txt_id_padded = str(txt_id).zfill(5)
+            scanscribe_graphs_test[scene_id + '_' + txt_id_padded] = SceneGraph(scene_id,
+                                                                        txt_id=txt_id,
+                                                                        graph_type='scanscribe', 
+                                                                        graph=scanscribe_scenes[scene_id][txt_id], 
+                                                                        embedding_type='word2vec',
+                                                                        use_attributes=args.use_attributes)
     
     print(f'number of scanscribe test graphs before removing: {len(scanscribe_graphs_test)}')
     to_remove = []
@@ -616,17 +616,17 @@ if __name__ == '__main__':
     print(f'number of scanscribe test graphs after removing: {len(scanscribe_graphs_test)}')
     args.test_set_size = len(scanscribe_graphs_test)
 
-    human_graphs_test = torch.load('../data_checkpoints/processed_data/testing/human_graphs_test_graph_min_size_4.pt')              # Len 35
-    # h_graphs_test = torch.load('../data_checkpoints/processed_data/human/human_graphs_processed.pt')
-    # h_graphs_remove = [k for k in h_graphs_test if k.split('_')[0] not in _3dssg_graphs]
-    # print(f'to remove human_graphs, hopefully none: {h_graphs_remove}')
-    # for k in h_graphs_remove: del h_graphs_test[k]
-    # assert(all([k.split('_')[0] in _3dssg_graphs for k in h_graphs_test]))
-    # human_graphs_test = {k: SceneGraph(k.split('_')[0], 
-    #                                graph_type='human',
-    #                                graph=h_graphs_test[k],
-    #                                embedding_type='word2vec',
-    #                                use_attributes=args.use_attributes) for k in h_graphs_test}
+    # human_graphs_test = torch.load('../data_checkpoints/processed_data/testing/human_graphs_test_graph_min_size_4.pt')              # Len 35
+    h_graphs_test = torch.load('../data_checkpoints/processed_data/human/human_graphs_processed.pt')
+    h_graphs_remove = [k for k in h_graphs_test if k.split('_')[0] not in _3dssg_graphs]
+    print(f'to remove human_graphs, hopefully none: {h_graphs_remove}')
+    for k in h_graphs_remove: del h_graphs_test[k]
+    assert(all([k.split('_')[0] in _3dssg_graphs for k in h_graphs_test]))
+    human_graphs_test = {k: SceneGraph(k.split('_')[0], 
+                                   graph_type='human',
+                                   graph=h_graphs_test[k],
+                                   embedding_type='word2vec',
+                                   use_attributes=args.use_attributes) for k in h_graphs_test}
 
     if args.training_with_cross_val:
         model = BigGNN(args.N).to('cuda')
