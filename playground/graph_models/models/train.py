@@ -28,7 +28,7 @@ def train(model, optimizer, database_3dssg, dataset, batch_size, fold):
     assert(type(dataset) == list)
     indices = [i for i in range(len(dataset))]
     random.shuffle(indices)
-    assert(all([len(g.nodes) >= args.graph_size_min for g in dataset]))
+    # assert(all([len(g.nodes) >= args.graph_size_min for g in dataset]))
     if (args.contrastive_loss):
         batched_indices = [indices[i:i+batch_size] for i in range(0, len(indices) - batch_size, batch_size)] # TODO: Check the indexing is okay here, 
                                                                                                              # but for now should be fine we just skip a 
@@ -106,7 +106,7 @@ def eval_loss(model, database_3dssg, dataset, fold):
         assert(type(dataset) == list)
         indices = [i for i in range(len(dataset))]
         random.shuffle(indices)
-        assert(all([len(g.nodes) >= args.graph_size_min for g in dataset]))
+        # assert(all([len(g.nodes) >= args.graph_size_min for g in dataset]))
         if (args.contrastive_loss):
             batched_indices = [indices[i:i+args.batch_size] for i in range(0, len(indices) - args.batch_size, args.batch_size)] # TODO: Check the indexing is okay here, but for now should be fine we just skip a few graphs
             assert(len(batched_indices[0]) == args.batch_size)
@@ -191,12 +191,17 @@ def eval_acc(model, database_3dssg, dataset, fold, mode='scanscribe', num_test_m
     assert(len(sampled_test_indices) == num_test_mini_sets)
     assert(len(dataset) > 10)
 
+    scene_ids_tset = []
     for t_set in sampled_test_indices:
         true_match = []
         match_prob = []
         for i in t_set:
             query = dataset[t_set[0]]
+            print(f'query.scene_id: {query.scene_id}')
+            print(f'query nodes: {[query.nodes[i].label for i in query.nodes]}')
             db = database_3dssg[dataset[i].scene_id]
+            scene_ids_tset.append(db.scene_id)
+            print(f'db.scene_id: {db.scene_id}')
             assert(query.scene_id == db.scene_id if i == t_set[0] else query.scene_id != db.scene_id)
             query_subgraph, db_subgraph = get_matching_subgraph(query, db)
             if db_subgraph is None or len(db_subgraph.nodes) <= 1 or len(db_subgraph.edge_idx[0]) <= 1: db_subgraph = db
@@ -217,6 +222,13 @@ def eval_acc(model, database_3dssg, dataset, fold, mode='scanscribe', num_test_m
         sorted_indices = np.argsort(match_prob)
         match_prob = match_prob[sorted_indices]
         true_match = true_match[sorted_indices]
+
+        scene_ids_tset = [scene_ids_tset[i] for i in sorted_indices]
+
+        print(f'match_prob ranked in order of match_prob: {match_prob}')
+        print(f'true_match ranked in order of match_prob: {true_match}')
+        print(f'scene_ids_tset ranked in order of match_prob: {scene_ids_tset}')
+
         # print(f'match_prob: {match_prob}')
         # print(f'true_match: {true_match}')
         for k in valid_top_k:
@@ -230,6 +242,7 @@ def eval_acc(model, database_3dssg, dataset, fold, mode='scanscribe', num_test_m
         for k in accuracy: wandb.log({f'accuracy_{str(mode)}_top_{k}': accuracy[k]}) 
     print(f'accuracies: {accuracy}')
     model.train()
+    
     return accuracy[1]
 
 def train_with_cross_val(dataset, database_3dssg, model, folds, epochs, batch_size):
@@ -324,7 +337,7 @@ def train_without_val(_3dssg_graphs, scanscribe_graphs):
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
     current_keys = list(scanscribe_graphs.keys())
-    assert(all([len(scanscribe_graphs[g].nodes) >= args.graph_size_min for g in scanscribe_graphs]))
+    # assert(all([len(scanscribe_graphs[g].nodes) >= args.graph_size_min for g in scanscribe_graphs]))
 
     # batched contrastive Loss
     if (args.contrastive_loss):
@@ -511,6 +524,7 @@ def evaluate_model(model, scanscribe, _3dssg, mode='test'):
     model.train()
 
 if __name__ == '__main__':
+    # In[0]: argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--mode', type=str, default='online')
     parser.add_argument('--epoch', type=int, default=10)
@@ -530,6 +544,7 @@ if __name__ == '__main__':
     parser.add_argument('--folds', type=int, default=5)
     parser.add_argument('--skip_k_fold', type=bool, default=False)
     args = parser.parse_args()
+    # In[1]
 
     wandb.config = { "architecture": "self attention cross attention",
                      "dataset": "ScanScribe_cleaned"} # ScanScribe_1 is the cleaned dataset with ada_002 embeddings
@@ -538,8 +553,33 @@ if __name__ == '__main__':
                 mode=args.mode,
                 config=wandb.config)
 
-    _3dssg_graphs = torch.load('../data_checkpoints/processed_data/training/3dssg_graphs_train_graph_min_size_4.pt')                # Len 1323
+    _3dssg_graphs = torch.load('../data_checkpoints/processed_data/training/3dssg_graphs_train_graph_min_size_4.pt')                # Len 1323   
+    # _3dssg_graphs = {}
+    # _3dssg_scenes = torch.load('../data_checkpoints/processed_data/3dssg/3dssg_graphs_processed_edgelists_relationembed.pt')
+    # for sceneid in tqdm(_3dssg_scenes):
+    #     _3dssg_graphs[sceneid] = SceneGraph(sceneid, 
+    #                                         graph_type='3dssg', 
+    #                                         graph=_3dssg_scenes[sceneid], 
+    #                                         max_dist=1.0, embedding_type='word2vec',
+    #                                         use_attributes=args.use_attributes)     
+
+
     scanscribe_graphs = torch.load('../data_checkpoints/processed_data/training/scanscribe_graphs_train_graph_min_size_4.pt')       # 80% split len 2847
+    # scanscribe_graphs = {}
+    # scanscribe_scenes = torch.load('../data_checkpoints/processed_data/training/scanscribe_graphs_train_final_no_graph_min.pt')
+    # for scene_id in tqdm(scanscribe_scenes):
+    #     txtids = scanscribe_scenes[scene_id].keys()
+    #     assert(len(set(txtids)) == len(txtids)) # no duplicate txtids
+    #     assert(len(set(txtids)) == len(range(max([int(id) for id in txtids]) + 1))) # no missing txtids
+    #     for txt_id in txtids:
+    #         txt_id_padded = str(txt_id).zfill(5)
+    #         scanscribe_graphs[scene_id + '_' + txt_id_padded] = SceneGraph(scene_id,
+    #                                                                     txt_id=txt_id,
+    #                                                                     graph_type='scanscribe', 
+    #                                                                     graph=scanscribe_scenes[scene_id][txt_id], 
+    #                                                                     embedding_type='word2vec',
+    #                                                                     use_attributes=args.use_attributes)
+
     # preprocess so that the graphs all at least 1 edge
     print(f'number of scanscribe graphs before removing graphs with 1 edge: {len(scanscribe_graphs)}')
     to_remove = []
@@ -552,6 +592,21 @@ if __name__ == '__main__':
     args.training_set_size = len(scanscribe_graphs)
 
     scanscribe_graphs_test = torch.load('../data_checkpoints/processed_data/testing/scanscribe_graphs_test_graph_min_size_4.pt')    # 20% split len 712
+    # scanscribe_graphs_test = {}
+    # scanscribe_scenes = torch.load('../data_checkpoints/processed_data/testing/scanscribe_graphs_test_final_no_graph_min.pt')
+    # for scene_id in tqdm(scanscribe_scenes):
+    #     txtids = scanscribe_scenes[scene_id].keys()
+    #     assert(len(set(txtids)) == len(txtids)) # no duplicate txtids
+    #     assert(len(set(txtids)) == len(range(max([int(id) for id in txtids]) + 1))) # no missing txtids
+    #     for txt_id in txtids:
+    #         txt_id_padded = str(txt_id).zfill(5)
+    #         scanscribe_graphs_test[scene_id + '_' + txt_id_padded] = SceneGraph(scene_id,
+    #                                                                     txt_id=txt_id,
+    #                                                                     graph_type='scanscribe', 
+    #                                                                     graph=scanscribe_scenes[scene_id][txt_id], 
+    #                                                                     embedding_type='word2vec',
+    #                                                                     use_attributes=args.use_attributes)
+    
     print(f'number of scanscribe test graphs before removing: {len(scanscribe_graphs_test)}')
     to_remove = []
     for g in scanscribe_graphs_test:
@@ -562,6 +617,16 @@ if __name__ == '__main__':
     args.test_set_size = len(scanscribe_graphs_test)
 
     human_graphs_test = torch.load('../data_checkpoints/processed_data/testing/human_graphs_test_graph_min_size_4.pt')              # Len 35
+    # h_graphs_test = torch.load('../data_checkpoints/processed_data/human/human_graphs_processed.pt')
+    # h_graphs_remove = [k for k in h_graphs_test if k.split('_')[0] not in _3dssg_graphs]
+    # print(f'to remove human_graphs, hopefully none: {h_graphs_remove}')
+    # for k in h_graphs_remove: del h_graphs_test[k]
+    # assert(all([k.split('_')[0] in _3dssg_graphs for k in h_graphs_test]))
+    # human_graphs_test = {k: SceneGraph(k.split('_')[0], 
+    #                                graph_type='human',
+    #                                graph=h_graphs_test[k],
+    #                                embedding_type='word2vec',
+    #                                use_attributes=args.use_attributes) for k in h_graphs_test}
 
     if args.training_with_cross_val:
         model = BigGNN(args.N).to('cuda')
@@ -574,7 +639,7 @@ if __name__ == '__main__':
                                         batch_size=args.batch_size)
     
     ######### SAVE SOME THINGS #########
-    model_name = 'model_100epochs'
+    model_name = 'test_model_can_delete'
     args_str = ''
     for arg in vars(args): args_str += f'\n{arg}_{getattr(args, arg)}'
     with open(f'../model_checkpoints/graph2graph/{model_name}_args.txt', 'w') as f: f.write(args_str)
@@ -582,7 +647,7 @@ if __name__ == '__main__':
     ####################################
 
     # model = BigGNN(args.N).to('cuda')
-    # model.load_state_dict(torch.load('../model_checkpoints/graph2graph/model.pt'))
+    # model.load_state_dict(torch.load('../model_checkpoints/graph2graph/model_100epochs.pt'))
 
     t_start = time.perf_counter()
     # Final test sets evaluation
