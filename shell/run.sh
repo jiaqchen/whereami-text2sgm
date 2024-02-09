@@ -11,9 +11,8 @@ python3 train.py \
     --lr 0.0001 \
     --weight_decay 0.00005 \
     --batch_size 16 \
-    --graph_size_min 5 \
     --contrastive_loss True \
-    --valid_top_k 1 2 3 5 \
+    --valid_top_k 1 3 5 \
     --use_attributes True \
     --training_with_cross_val True \
     --folds 10 \
