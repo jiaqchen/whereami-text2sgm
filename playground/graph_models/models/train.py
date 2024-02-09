@@ -50,7 +50,8 @@ def train(model, optimizer, database_3dssg, dataset, batch_size, fold):
 
                     x_node_ft, x_edge_idx, x_edge_ft = query_subgraph.to_pyg()
                     p_node_ft, p_edge_idx, p_edge_ft = db_subgraph.to_pyg()
-                    if len(x_edge_idx[0]) <= 2 or len(p_edge_idx[0]) <= 2: 
+                    # if len(x_edge_idx[0]) <= 2 or len(p_edge_idx[0]) <= 2:
+                    if len(x_edge_idx[0]) < 1 or len(p_edge_idx[0]) < 1: # TODO: does this work with < 1?
                         skipped += 1
                         loss1[i][j] = 1
                         loss1[j][i] = loss1[i][j]
@@ -127,7 +128,8 @@ def eval_loss(model, database_3dssg, dataset, fold):
 
                         x_node_ft, x_edge_idx, x_edge_ft = query_subgraph.to_pyg()
                         p_node_ft, p_edge_idx, p_edge_ft = db_subgraph.to_pyg()
-                        if len(x_edge_idx[0]) <= 2 or len(p_edge_idx[0]) <= 2: 
+                        # if len(x_edge_idx[0]) <= 2 or len(p_edge_idx[0]) <= 2:
+                        if len(x_edge_idx[0]) < 1 or len(p_edge_idx[0]) < 1: # TODO: does this work with < 1?
                             skipped += 1
                             loss1[i][j] = 1
                             loss1[j][i] = loss1[i][j]
@@ -175,9 +177,8 @@ def eval_loss(model, database_3dssg, dataset, fold):
     model.train()
     return torch.tensor(loss_across_batches).mean().item()
 
-def eval_acc(model, database_3dssg, dataset, fold, mode='scanscribe', num_test_mini_sets=1000):
+def eval_acc(model, database_3dssg, dataset, fold, mode='scanscribe', num_test_mini_sets=1000, valid_top_k=[1, 2, 3, 5]):
     model.eval()
-    valid_top_k = args.valid_top_k
     valid = {k: [] for k in valid_top_k}
 
     # Make sure the dataset is properly sampled
@@ -195,17 +196,22 @@ def eval_acc(model, database_3dssg, dataset, fold, mode='scanscribe', num_test_m
     for t_set in sampled_test_indices:
         true_match = []
         match_prob = []
+        scene_ids_tset = []
         for i in t_set:
             query = dataset[t_set[0]]
-            print(f'query.scene_id: {query.scene_id}')
-            print(f'query nodes: {[query.nodes[i].label for i in query.nodes]}')
+            if (False):
+                print(f'query.scene_id: {query.scene_id}')
+                print(f'query nodes: {[query.nodes[i].label for i in query.nodes]}')
             db = database_3dssg[dataset[i].scene_id]
             scene_ids_tset.append(db.scene_id)
-            print(f'db.scene_id: {db.scene_id}')
+            if (False):
+                print(f'db.scene_id: {db.scene_id}')
             assert(query.scene_id == db.scene_id if i == t_set[0] else query.scene_id != db.scene_id)
             query_subgraph, db_subgraph = get_matching_subgraph(query, db)
-            if db_subgraph is None or len(db_subgraph.nodes) <= 1 or len(db_subgraph.edge_idx[0]) <= 1: db_subgraph = db
-            if query_subgraph is None or len(query_subgraph.nodes) <= 1 or len(query_subgraph.edge_idx[0]) <= 1: query_subgraph = query
+            # if db_subgraph is None or len(db_subgraph.nodes) <= 1 or len(db_subgraph.edge_idx[0]) <= 1: db_subgraph = db
+            # if query_subgraph is None or len(query_subgraph.nodes) <= 1 or len(query_subgraph.edge_idx[0]) <= 1: query_subgraph = query
+            if db_subgraph is None or len(db_subgraph.nodes) <= 1 or len(db_subgraph.edge_idx[0]) < 1: db_subgraph = db # TODO: does this work with < 1?
+            if query_subgraph is None or len(query_subgraph.nodes) <= 1 or len(query_subgraph.edge_idx[0]) < 1: query_subgraph = query # TODO: does this work with < 1?
             x_node_ft, x_edge_idx, x_edge_ft = query_subgraph.to_pyg()
             p_node_ft, p_edge_idx, p_edge_ft = db_subgraph.to_pyg()
 
@@ -243,7 +249,7 @@ def eval_acc(model, database_3dssg, dataset, fold, mode='scanscribe', num_test_m
     print(f'accuracies: {accuracy}')
     model.train()
     
-    return accuracy[1]
+    return accuracy
 
 def train_with_cross_val(dataset, database_3dssg, model, folds, epochs, batch_size):
     # assert(type(dataset) == list)
@@ -549,6 +555,8 @@ if __name__ == '__main__':
     wandb.config = { "architecture": "self attention cross attention",
                      "dataset": "ScanScribe_cleaned"} # ScanScribe_1 is the cleaned dataset with ada_002 embeddings
     for arg in vars(args): wandb.config[arg] = getattr(args, arg)
+    wandb.init(settings=wandb.Settings(start_method='fork'))
+    wandb.init(settings=wandb.Settings(start_method='thread'))
     wandb.init(project="graph2graph",
                 mode=args.mode,
                 config=wandb.config)
@@ -639,7 +647,7 @@ if __name__ == '__main__':
                                         batch_size=args.batch_size)
     
     ######### SAVE SOME THINGS #########
-    model_name = 'test_model_can_delete'
+    model_name = 'model_trained_on_final_split'
     args_str = ''
     for arg in vars(args): args_str += f'\n{arg}_{getattr(args, arg)}'
     with open(f'../model_checkpoints/graph2graph/{model_name}_args.txt', 'w') as f: f.write(args_str)
