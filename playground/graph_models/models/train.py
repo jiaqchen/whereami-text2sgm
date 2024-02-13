@@ -200,6 +200,7 @@ def eval_acc(model, database_3dssg, dataset, fold, mode='scanscribe', num_test_m
         for i in t_set:
             query = dataset[t_set[0]]
             if (False):
+                if hasattr(query, 'txt_id'): print(f'query.txt_id: {query.txt_id}')
                 print(f'query.scene_id: {query.scene_id}')
                 print(f'query nodes: {[query.nodes[i].label for i in query.nodes]}')
             db = database_3dssg[dataset[i].scene_id]
@@ -555,8 +556,6 @@ if __name__ == '__main__':
     wandb.config = { "architecture": "self attention cross attention",
                      "dataset": "ScanScribe_cleaned"} # ScanScribe_1 is the cleaned dataset with ada_002 embeddings
     for arg in vars(args): wandb.config[arg] = getattr(args, arg)
-    wandb.init(settings=wandb.Settings(start_method='fork'))
-    wandb.init(settings=wandb.Settings(start_method='thread'))
     wandb.init(project="graph2graph",
                 mode=args.mode,
                 config=wandb.config)
@@ -647,7 +646,7 @@ if __name__ == '__main__':
                                         batch_size=args.batch_size)
     
     ######### SAVE SOME THINGS #########
-    model_name = 'model_trained_on_final_split'
+    model_name = 'test_model_can_delete'
     args_str = ''
     for arg in vars(args): args_str += f'\n{arg}_{getattr(args, arg)}'
     with open(f'../model_checkpoints/graph2graph/{model_name}_args.txt', 'w') as f: f.write(args_str)
