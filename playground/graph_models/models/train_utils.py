@@ -47,11 +47,27 @@ def k_fold_by_scene(dataset, folds: int):
         if graph.scene_id not in scene_dataset:
             scene_dataset[graph.scene_id] = []
         scene_dataset[graph.scene_id].append(i)
-    
-    print(scene_dataset.keys())
-    print(f"number of scenes: {len(scene_dataset)}")
-    print(f"number of graphs in the first scene: {len(scene_dataset[list(scene_dataset.keys())[0]])}")
-    print(f"number of total graphs: {len(dataset)}")
-    print(f"number of total graphs in scene_dataset: {sum([len(scene_dataset[scene]) for scene in scene_dataset])}")
-    exit()
+
     # Create the folds based on the scene name
+    random.seed(0)
+    scene_names = list(scene_dataset.keys())
+    random.shuffle(scene_names)
+    fold_size = len(scene_names) // folds
+    train_indices, val_indices = [], []
+    train_scene_names_to_check, val_scene_names_to_check = [], []
+    for i in range(folds):
+        val_scene_names = scene_names[i * fold_size : (i + 1) * fold_size]
+        val_indices.append([idx for scene_name in val_scene_names for idx in scene_dataset[scene_name]])
+        train_indices.append([idx for scene_name in scene_names if scene_name not in val_scene_names for idx in scene_dataset[scene_name]])
+        val_scene_names_to_check.append(val_scene_names)
+        train_scene_names_to_check.append([scene_name for scene_name in scene_names if scene_name not in val_scene_names])
+
+    # save the scene_names to a file
+    with open(f'./training_scene_ids.txt', 'r') as f:
+        for i, scene_name_list in enumerate(train_scene_names_to_check):
+            assert(str(scene_name_list) == f.readline().strip())
+    with open(f'./testing_scene_ids.txt', 'r') as f:
+        for i, scene_name_list in enumerate(val_scene_names_to_check):
+            assert(str(scene_name_list) == f.readline().strip())
+
+    return zip(train_indices, val_indices)
