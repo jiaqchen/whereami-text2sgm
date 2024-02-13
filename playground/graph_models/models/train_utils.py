@@ -36,3 +36,22 @@ def cross_entropy(preds, targets, reduction='none', dim=-1): # TODO: This could 
         return loss
     elif reduction == "mean":
         return loss.mean()    
+
+def k_fold_by_scene(dataset, folds: int):
+    '''
+    dataset: should be a list of SceneGraphs
+    '''
+    # Separate the dataset by scene
+    scene_dataset = {} # mapping from scene name to list of indices from the dataset
+    for i, graph in enumerate(dataset):
+        if graph.scene_id not in scene_dataset:
+            scene_dataset[graph.scene_id] = []
+        scene_dataset[graph.scene_id].append(i)
+    
+    print(scene_dataset.keys())
+    print(f"number of scenes: {len(scene_dataset)}")
+    print(f"number of graphs in the first scene: {len(scene_dataset[list(scene_dataset.keys())[0]])}")
+    print(f"number of total graphs: {len(dataset)}")
+    print(f"number of total graphs in scene_dataset: {sum([len(scene_dataset[scene]) for scene in scene_dataset])}")
+    exit()
+    # Create the folds based on the scene name

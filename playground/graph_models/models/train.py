@@ -16,7 +16,7 @@ sys.path.append('../../../') # sys.path.append('/home/julia/Documents/h_coarse_l
 from scene_graph import SceneGraph
 from data_distribution_analysis.helper import get_matching_subgraph, calculate_overlap
 from model_graph2graph import BigGNN
-from train_utils import k_fold, cross_entropy
+from train_utils import k_fold, cross_entropy, k_fold_by_scene
 
 torch.cuda.empty_cache()
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -177,9 +177,8 @@ def eval_loss(model, database_3dssg, dataset, fold):
     model.train()
     return torch.tensor(loss_across_batches).mean().item()
 
-def eval_acc(model, database_3dssg, dataset, fold, mode='scanscribe', num_test_mini_sets=1000, valid_top_k=[1, 2, 3, 5]):
+def eval_acc(model, database_3dssg, dataset, fold, mode='scanscribe', num_test_mini_sets=10, valid_top_k=[1, 2, 3, 5]):
     model.eval()
-    valid = {k: [] for k in valid_top_k}
 
     # Make sure the dataset is properly sampled
     buckets = {}
@@ -187,62 +186,72 @@ def eval_acc(model, database_3dssg, dataset, fold, mode='scanscribe', num_test_m
         if g.scene_id not in buckets: buckets[g.scene_id] = []
         buckets[g.scene_id].append(idx)
 
-    sampled_test_indices = [[random.sample(buckets[g], 1)[0] for g in random.sample(list(buckets.keys()), 10)] for _ in range(num_test_mini_sets)]
-    assert(len(sampled_test_indices[0]) == 10)
-    assert(len(sampled_test_indices) == num_test_mini_sets)
-    assert(len(dataset) > 10)
+    # out_of is basically 10
+    all_valid = {}
+    for _ in range(1000): # TODO: eval_iter is 1000, set this variable everywhere
+        valid = {k: [] for k in valid_top_k}
 
-    scene_ids_tset = []
-    for t_set in sampled_test_indices:
-        true_match = []
-        match_prob = []
+        sampled_test_indices = [[random.sample(buckets[g], 1)[0] for g in random.sample(list(buckets.keys()), 10)] for _ in range(num_test_mini_sets)]
+        assert(len(sampled_test_indices[0]) == 10)
+        assert(len(sampled_test_indices) == num_test_mini_sets)
+        assert(len(dataset) > 10)
+
         scene_ids_tset = []
-        for i in t_set:
-            query = dataset[t_set[0]]
-            if (False):
-                if hasattr(query, 'txt_id'): print(f'query.txt_id: {query.txt_id}')
-                print(f'query.scene_id: {query.scene_id}')
-                print(f'query nodes: {[query.nodes[i].label for i in query.nodes]}')
-            db = database_3dssg[dataset[i].scene_id]
-            scene_ids_tset.append(db.scene_id)
-            if (False):
-                print(f'db.scene_id: {db.scene_id}')
-            assert(query.scene_id == db.scene_id if i == t_set[0] else query.scene_id != db.scene_id)
-            query_subgraph, db_subgraph = get_matching_subgraph(query, db)
-            # if db_subgraph is None or len(db_subgraph.nodes) <= 1 or len(db_subgraph.edge_idx[0]) <= 1: db_subgraph = db
-            # if query_subgraph is None or len(query_subgraph.nodes) <= 1 or len(query_subgraph.edge_idx[0]) <= 1: query_subgraph = query
-            if db_subgraph is None or len(db_subgraph.nodes) <= 1 or len(db_subgraph.edge_idx[0]) < 1: db_subgraph = db # TODO: does this work with < 1?
-            if query_subgraph is None or len(query_subgraph.nodes) <= 1 or len(query_subgraph.edge_idx[0]) < 1: query_subgraph = query # TODO: does this work with < 1?
-            x_node_ft, x_edge_idx, x_edge_ft = query_subgraph.to_pyg()
-            p_node_ft, p_edge_idx, p_edge_ft = db_subgraph.to_pyg()
+        for t_set in sampled_test_indices:
+            true_match = []
+            match_prob = []
+            scene_ids_tset = []
+            for i in t_set:
+                query = dataset[t_set[0]]
+                if (False):
+                    if hasattr(query, 'txt_id'): print(f'query.txt_id: {query.txt_id}')
+                    print(f'query.scene_id: {query.scene_id}')
+                    print(f'query nodes: {[query.nodes[i].label for i in query.nodes]}')
+                db = database_3dssg[dataset[i].scene_id]
+                scene_ids_tset.append(db.scene_id)
+                if (False):
+                    print(f'db.scene_id: {db.scene_id}')
+                assert(query.scene_id == db.scene_id if i == t_set[0] else query.scene_id != db.scene_id)
+                query_subgraph, db_subgraph = get_matching_subgraph(query, db)
+                # if db_subgraph is None or len(db_subgraph.nodes) <= 1 or len(db_subgraph.edge_idx[0]) <= 1: db_subgraph = db
+                # if query_subgraph is None or len(query_subgraph.nodes) <= 1 or len(query_subgraph.edge_idx[0]) <= 1: query_subgraph = query
+                if db_subgraph is None or len(db_subgraph.nodes) <= 1 or len(db_subgraph.edge_idx[0]) < 1: db_subgraph = db # TODO: does this work with < 1?
+                if query_subgraph is None or len(query_subgraph.nodes) <= 1 or len(query_subgraph.edge_idx[0]) < 1: query_subgraph = query # TODO: does this work with < 1?
+                x_node_ft, x_edge_idx, x_edge_ft = query_subgraph.to_pyg()
+                p_node_ft, p_edge_idx, p_edge_ft = db_subgraph.to_pyg()
 
-            x_p, p_p, m_p = model(torch.tensor(np.array(x_node_ft), dtype=torch.float32).to('cuda'), torch.tensor(np.array(p_node_ft), dtype=torch.float32).to('cuda'),
-                                    torch.tensor(x_edge_idx, dtype=torch.int64).to('cuda'), torch.tensor(p_edge_idx, dtype=torch.int64).to('cuda'),
-                                    torch.tensor(np.array(x_edge_ft), dtype=torch.float32).to('cuda'), torch.tensor(np.array(p_edge_ft), dtype=torch.float32).to('cuda'))
-            match_prob.append(m_p.item())
-            if (query.scene_id == db.scene_id): true_match.append(1)
-            else: true_match.append(0)
+                x_p, p_p, m_p = model(torch.tensor(np.array(x_node_ft), dtype=torch.float32).to('cuda'), torch.tensor(np.array(p_node_ft), dtype=torch.float32).to('cuda'),
+                                        torch.tensor(x_edge_idx, dtype=torch.int64).to('cuda'), torch.tensor(p_edge_idx, dtype=torch.int64).to('cuda'),
+                                        torch.tensor(np.array(x_edge_ft), dtype=torch.float32).to('cuda'), torch.tensor(np.array(p_edge_ft), dtype=torch.float32).to('cuda'))
+                match_prob.append(m_p.item())
+                if (query.scene_id == db.scene_id): true_match.append(1)
+                else: true_match.append(0)
+            
+            # sort w indices
+            match_prob = np.array(match_prob)
+            true_match = np.array(true_match)
+            sorted_indices = np.argsort(match_prob)
+            match_prob = match_prob[sorted_indices]
+            true_match = true_match[sorted_indices]
+
+            scene_ids_tset = [scene_ids_tset[i] for i in sorted_indices]
+
+            if (False):
+                print(f'match_prob ranked in order of match_prob: {match_prob}')
+                print(f'true_match ranked in order of match_prob: {true_match}')
+                print(f'scene_ids_tset ranked in order of match_prob: {scene_ids_tset}')
+
+            # print(f'match_prob: {match_prob}')
+            # print(f'true_match: {true_match}')
+            for k in valid_top_k:
+                if (1 in true_match[-k:]): valid[k].append(1)
+                else: valid[k].append(0)
         
-        # sort w indices
-        match_prob = np.array(match_prob)
-        true_match = np.array(true_match)
-        sorted_indices = np.argsort(match_prob)
-        match_prob = match_prob[sorted_indices]
-        true_match = true_match[sorted_indices]
-
-        scene_ids_tset = [scene_ids_tset[i] for i in sorted_indices]
-
-        print(f'match_prob ranked in order of match_prob: {match_prob}')
-        print(f'true_match ranked in order of match_prob: {true_match}')
-        print(f'scene_ids_tset ranked in order of match_prob: {scene_ids_tset}')
-
-        # print(f'match_prob: {match_prob}')
-        # print(f'true_match: {true_match}')
         for k in valid_top_k:
-            if (1 in true_match[-k:]): valid[k].append(1)
-            else: valid[k].append(0)
+            if k not in all_valid: all_valid[k] = []
+            all_valid[k].append(np.mean(valid[k]))
 
-    accuracy = {k: np.mean(valid[k]) for k in valid_top_k}
+    accuracy = {k: (np.mean(all_valid[k]), np.std(all_valid[k])) for k in valid_top_k}
     if fold is not None:
         for k in accuracy: wandb.log({f'accuracy_{str(mode)}_top_{k}_fold_{fold}': accuracy[k]})
     else:
@@ -256,7 +265,7 @@ def train_with_cross_val(dataset, database_3dssg, model, folds, epochs, batch_si
     # assert(type(dataset) == list)
     val_losses, accs, durations = [], [], []
     scanscribe_test_accs, human_test_accs = [], []
-    for fold, (train_idx, test_idx, val_idx) in enumerate(zip(*k_fold(dataset, folds))):
+    for fold, (train_idx, test_idx, val_idx) in enumerate(zip(*k_fold_by_scene(dataset, folds))):
         train_dataset = [dataset[i] for i in train_idx]
         test_dataset = [dataset[i] for i in test_idx]
         val_dataset = [dataset[i] for i in val_idx]
@@ -600,9 +609,9 @@ if __name__ == '__main__':
 
     # scanscribe_graphs_test = torch.load('../data_checkpoints/processed_data/testing/scanscribe_graphs_test_graph_min_size_4.pt')    # 20% split len 712
     scanscribe_graphs_test = {}
-    scanscribe_scenes = torch.load('../data_checkpoints/processed_data/testing/scanscribe_graphs_test_final_no_graph_min.pt')
-    for scene_id in tqdm(scanscribe_scenes):
-        txtids = scanscribe_scenes[scene_id].keys()
+    scanscribe_graphs_test = torch.load('../data_checkpoints/processed_data/testing/scanscribe_graphs_test_final_no_graph_min.pt')
+    for scene_id in tqdm(scanscribe_graphs_test):
+        txtids = scanscribe_graphs_test[scene_id].keys()
         assert(len(set(txtids)) == len(txtids)) # no duplicate txtids
         assert(len(set(txtids)) == len(range(max([int(id) for id in txtids]) + 1))) # no missing txtids
         for txt_id in txtids:
@@ -610,7 +619,7 @@ if __name__ == '__main__':
             scanscribe_graphs_test[scene_id + '_' + txt_id_padded] = SceneGraph(scene_id,
                                                                         txt_id=txt_id,
                                                                         graph_type='scanscribe', 
-                                                                        graph=scanscribe_scenes[scene_id][txt_id], 
+                                                                        graph=scanscribe_graphs_test[scene_id][txt_id], 
                                                                         embedding_type='word2vec',
                                                                         use_attributes=args.use_attributes)
     
