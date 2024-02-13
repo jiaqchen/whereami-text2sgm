@@ -265,14 +265,12 @@ def train_with_cross_val(dataset, database_3dssg, model, folds, epochs, batch_si
     # assert(type(dataset) == list)
     val_losses, accs, durations = [], [], []
     scanscribe_test_accs, human_test_accs = [], []
-    for fold, (train_idx, test_idx, val_idx) in enumerate(zip(*k_fold_by_scene(dataset, folds))):
+    for fold, (train_idx, val_idx) in enumerate(k_fold_by_scene(dataset, folds)):
         train_dataset = [dataset[i] for i in train_idx]
-        test_dataset = [dataset[i] for i in test_idx]
         val_dataset = [dataset[i] for i in val_idx]
 
         print(f'length of training set in fold {fold}: {len(train_dataset)}')
         print(f'length of validation set in fold {fold}: {len(val_dataset)}')
-        print(f'length of test set in fold {fold}: {len(test_dataset)}')
         
         # model.to(device).reset_parameters()
         model = BigGNN(args.N).to('cuda') # for now because reset_parameters() was not working
@@ -299,7 +297,7 @@ def train_with_cross_val(dataset, database_3dssg, model, folds, epochs, batch_si
                                         fold=fold))
             accs.append(eval_acc(model=model,
                                  database_3dssg=database_3dssg, 
-                                 dataset=test_dataset,
+                                 dataset=val_dataset,
                                  fold=fold,
                                  num_test_mini_sets=30))
             eval_info = {
@@ -307,8 +305,9 @@ def train_with_cross_val(dataset, database_3dssg, model, folds, epochs, batch_si
                 'epoch': epoch,
                 'train_loss': _,
                 'val_loss': val_losses[-1],
-                'test_acc_from_train': accs[-1],
+                'val_acc_from_train': accs[-1],
             }
+            print(f'Evaluation information: {eval_info}')
 
             # if epoch % lr_decay_step_size == 0:
             #     for param_group in optimizer.param_groups:
@@ -333,16 +332,17 @@ def train_with_cross_val(dataset, database_3dssg, model, folds, epochs, batch_si
     # print(f'Val Loss: {loss_mean:.4f}, Test Accuracy: {acc_mean:.3f} '
     #       f'± {acc_std:.3f}, Duration: {duration_mean:.3f}')
     
-    scanscribe_test_accs.append(eval_acc(model=model,
-                                    database_3dssg=_3dssg_graphs,
-                                    dataset=list(scanscribe_graphs_test.values()),
-                                    fold=None,
-                                    mode='scanscribe_test'))
-    human_test_accs.append(eval_acc(model=model,
-                                    database_3dssg=_3dssg_graphs,
-                                    dataset=list(human_graphs_test.values()),
-                                    fold=None,
-                                    mode='human_test')) 
+    ################ REDUNDANT, already doing this at the end of everythin
+    # scanscribe_test_accs.append(eval_acc(model=model,
+    #                                 database_3dssg=_3dssg_graphs,
+    #                                 dataset=list(scanscribe_graphs_test.values()),
+    #                                 fold=None,
+    #                                 mode='scanscribe_test'))
+    # human_test_accs.append(eval_acc(model=model,
+    #                                 database_3dssg=_3dssg_graphs,
+    #                                 dataset=list(human_graphs_test.values()),
+    #                                 fold=None,
+    #                                 mode='human_test')) 
 
     return model#, loss_mean, acc_mean, acc_std
 
@@ -554,7 +554,7 @@ if __name__ == '__main__':
     parser.add_argument('--test_set_size', type=int, default=712)
     parser.add_argument('--graph_size_min', type=int, default=4, help='minimum number of nodes in a graph')
     parser.add_argument('--contrastive_loss', type=bool, default=True)
-    parser.add_argument('--valid_top_k', nargs='+', type=int, default=[1, 3, 5])
+    parser.add_argument('--valid_top_k', nargs='+', type=int, default=[1, 2, 3, 5])
     parser.add_argument('--use_attributes', type=bool, default=True)
     parser.add_argument('--training_with_cross_val', type=bool, default=True)
     parser.add_argument('--folds', type=int, default=5)
@@ -577,8 +577,7 @@ if __name__ == '__main__':
                                             graph_type='3dssg', 
                                             graph=_3dssg_scenes[sceneid], 
                                             max_dist=1.0, embedding_type='word2vec',
-                                            use_attributes=args.use_attributes)     
-
+                                            use_attributes=args.use_attributes)
 
     # scanscribe_graphs = torch.load('../data_checkpoints/processed_data/training/scanscribe_graphs_train_graph_min_size_4.pt')       # 80% split len 2847
     scanscribe_graphs = {}
@@ -609,9 +608,9 @@ if __name__ == '__main__':
 
     # scanscribe_graphs_test = torch.load('../data_checkpoints/processed_data/testing/scanscribe_graphs_test_graph_min_size_4.pt')    # 20% split len 712
     scanscribe_graphs_test = {}
-    scanscribe_graphs_test = torch.load('../data_checkpoints/processed_data/testing/scanscribe_graphs_test_final_no_graph_min.pt')
-    for scene_id in tqdm(scanscribe_graphs_test):
-        txtids = scanscribe_graphs_test[scene_id].keys()
+    scanscribe_scenes_test = torch.load('../data_checkpoints/processed_data/testing/scanscribe_graphs_test_final_no_graph_min.pt')
+    for scene_id in tqdm(scanscribe_scenes_test):
+        txtids = scanscribe_scenes_test[scene_id].keys()
         assert(len(set(txtids)) == len(txtids)) # no duplicate txtids
         assert(len(set(txtids)) == len(range(max([int(id) for id in txtids]) + 1))) # no missing txtids
         for txt_id in txtids:
@@ -619,7 +618,7 @@ if __name__ == '__main__':
             scanscribe_graphs_test[scene_id + '_' + txt_id_padded] = SceneGraph(scene_id,
                                                                         txt_id=txt_id,
                                                                         graph_type='scanscribe', 
-                                                                        graph=scanscribe_graphs_test[scene_id][txt_id], 
+                                                                        graph=scanscribe_scenes_test[scene_id][txt_id], 
                                                                         embedding_type='word2vec',
                                                                         use_attributes=args.use_attributes)
     
@@ -655,7 +654,7 @@ if __name__ == '__main__':
                                         batch_size=args.batch_size)
     
     ######### SAVE SOME THINGS #########
-    model_name = 'test_model_can_delete'
+    model_name = 'model_100_epochs_5_folds'
     args_str = ''
     for arg in vars(args): args_str += f'\n{arg}_{getattr(args, arg)}'
     with open(f'../model_checkpoints/graph2graph/{model_name}_args.txt', 'w') as f: f.write(args_str)
@@ -667,12 +666,12 @@ if __name__ == '__main__':
 
     t_start = time.perf_counter()
     # Final test sets evaluation
-    top_1_avg_scanscribe_test = eval_acc(model=model,
+    scanscribe_test_accuracy = eval_acc(model=model,
                                      database_3dssg=_3dssg_graphs,
                                      dataset=list(scanscribe_graphs_test.values()),
                                      fold=None,
                                      mode='scanscribe_test')
-    top_1_avg_human_test = eval_acc(model=model,
+    human_test_accuracy = eval_acc(model=model,
                                      database_3dssg=_3dssg_graphs,
                                      dataset=list(human_graphs_test.values()),
                                      fold=None,
@@ -680,4 +679,4 @@ if __name__ == '__main__':
     t_end = time.perf_counter()
     print(f'Time elapsed in minutes: {(t_end - t_start) / 60}')
     
-    print(f'Final test set accuracies: scanscribe {top_1_avg_scanscribe_test}, human {top_1_avg_human_test}')
+    print(f'Final test set accuracies: scanscribe {scanscribe_test_accuracy}, human {human_test_accuracy}')
