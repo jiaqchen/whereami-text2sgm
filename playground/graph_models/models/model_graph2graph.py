@@ -61,7 +61,8 @@ class BigGNN(nn.Module):
             ############# Self Attention #############
             # x_1_pooled = torch.mean(x_1, dim=0)
             # x_2_pooled = torch.mean(x_2, dim=0)
-            # return x_1_pooled, x_2_pooled, None
+            # return x_1_pooled, x_2_pooled, torch.tensor(0.5)
+
             ############# Cross Attention #############
             len_x_1 = x_1.shape[0]
             len_x_2 = x_2.shape[0]

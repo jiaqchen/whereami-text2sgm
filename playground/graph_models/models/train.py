@@ -24,6 +24,17 @@ print(torch.cuda.current_device())
 
 random.seed(42)
 
+from args import get_args
+args = get_args()
+
+def format_to_latex(acc):
+    # Turn acc, which is a dict, into a string where each key-value pair is a line
+    acc_string = ''
+    for k, v in acc.items():
+        # format the string like latex: $0.00\pm0.00$, also as percentages
+        acc_string += f'{k}: ${v[0] * 100:.2f} \pm {v[1] * 100:.2f}$\n'
+    return acc_string
+
 def train(model, optimizer, database_3dssg, dataset, batch_size, fold):
     assert(type(dataset) == list)
     indices = [i for i in range(len(dataset))]
@@ -44,9 +55,12 @@ def train(model, optimizer, database_3dssg, dataset, batch_size, fold):
                     total += 1
                     query = dataset[batch[i]]
                     db = database_3dssg[dataset[batch[j]].scene_id]
-                    query_subgraph, db_subgraph = get_matching_subgraph(query, db)
-                    if db_subgraph is None or len(db_subgraph.nodes) <= 1: db_subgraph = db
-                    if query_subgraph is None or len(query_subgraph.nodes) <= 1: query_subgraph = query
+                    if (args.subgraph_ablation): # don't do subgraphing
+                        query_subgraph, db_subgraph = query, db
+                    else:
+                        query_subgraph, db_subgraph = get_matching_subgraph(query, db)
+                        if db_subgraph is None or len(db_subgraph.nodes) <= 1: db_subgraph = db
+                        if query_subgraph is None or len(query_subgraph.nodes) <= 1: query_subgraph = query
 
                     x_node_ft, x_edge_idx, x_edge_ft = query_subgraph.to_pyg()
                     p_node_ft, p_edge_idx, p_edge_ft = db_subgraph.to_pyg()
@@ -78,7 +92,9 @@ def train(model, optimizer, database_3dssg, dataset, batch_size, fold):
             # Cross entropy
             loss1 = cross_entropy(loss1, loss1_t, reduction='mean', dim=1)
             loss3 = cross_entropy(loss3, loss3_t, reduction='mean', dim=1)
-            loss = (loss1 + loss3) / 2.0
+            if (args.loss_ablation_m): loss = loss1     # cosine similarity only
+            elif (args.loss_ablation_c): loss = loss3   # matching probability only
+            else: loss = (loss1 + loss3) / 2.0          # average of both
 
             optimizer.zero_grad()
             loss.backward()
@@ -122,9 +138,12 @@ def eval_loss(model, database_3dssg, dataset, fold):
                         total += 1
                         query = dataset[batch[i]]
                         db = database_3dssg[dataset[batch[j]].scene_id]
-                        query_subgraph, db_subgraph = get_matching_subgraph(query, db)
-                        if db_subgraph is None or len(db_subgraph.nodes) <= 1: db_subgraph = db
-                        if query_subgraph is None or len(query_subgraph.nodes) <= 1: query_subgraph = query # TODO: why is scribe g None now?
+                        if (args.subgraph_ablation): # don't do subgraphing
+                            query_subgraph, db_subgraph = query, db
+                        else:
+                            query_subgraph, db_subgraph = get_matching_subgraph(query, db)
+                            if db_subgraph is None or len(db_subgraph.nodes) <= 1: db_subgraph = db
+                            if query_subgraph is None or len(query_subgraph.nodes) <= 1: query_subgraph = query # TODO: why is scribe g None now?
 
                         x_node_ft, x_edge_idx, x_edge_ft = query_subgraph.to_pyg()
                         p_node_ft, p_edge_idx, p_edge_ft = db_subgraph.to_pyg()
@@ -155,7 +174,9 @@ def eval_loss(model, database_3dssg, dataset, fold):
                 # Cross entropy
                 loss1 = cross_entropy(loss1, loss1_t, reduction='mean', dim=1)
                 loss3 = cross_entropy(loss3, loss3_t, reduction='mean', dim=1)
-                loss = (loss1 + loss3) / 2.0
+                if (args.loss_ablation_m or args.eval_only_c): loss = loss1     # use the cosine similarity
+                elif (args.loss_ablation_c): loss = loss3   # use the matching probability only
+                else: loss = (loss1 + loss3) / 2.0          # use the average of both
 
                 loss1_across_batches.append(loss1.item())
                 loss3_across_batches.append(loss3.item())
@@ -177,7 +198,7 @@ def eval_loss(model, database_3dssg, dataset, fold):
     model.train()
     return torch.tensor(loss_across_batches).mean().item()
 
-def eval_acc(model, database_3dssg, dataset, fold, mode='scanscribe', num_test_mini_sets=10, valid_top_k=[1, 2, 3, 5]):
+def eval_acc(model, database_3dssg, dataset, fold, mode='scanscribe', eval_iter_count=args.eval_iter_count, out_of=args.out_of, valid_top_k=[1, 2, 3, 5], timer=None):
     model.eval()
 
     # Make sure the dataset is properly sampled
@@ -186,20 +207,28 @@ def eval_acc(model, database_3dssg, dataset, fold, mode='scanscribe', num_test_m
         if g.scene_id not in buckets: buckets[g.scene_id] = []
         buckets[g.scene_id].append(idx)
 
+    if args.eval_entire_dataset:
+        out_of = len(buckets)
+        valid_top_k = [1, 5, 10, 20, 30, 40]
+        if mode == 'human' or mode == 'human_test':
+            valid_top_k.extend([50, 75])
+
+
     # out_of is basically 10
     all_valid = {}
-    for _ in range(1000): # TODO: eval_iter is 1000, set this variable everywhere
+    for _ in range(args.eval_iters):
         valid = {k: [] for k in valid_top_k}
 
-        sampled_test_indices = [[random.sample(buckets[g], 1)[0] for g in random.sample(list(buckets.keys()), 10)] for _ in range(num_test_mini_sets)]
-        assert(len(sampled_test_indices[0]) == 10)
-        assert(len(sampled_test_indices) == num_test_mini_sets)
+        sampled_test_indices = [[random.sample(buckets[g], 1)[0] for g in random.sample(list(buckets.keys()), out_of)] for _ in range(eval_iter_count)]
+        assert(len(sampled_test_indices[0]) == out_of)
+        assert(len(sampled_test_indices) == eval_iter_count)
         assert(len(dataset) > 10)
 
         scene_ids_tset = []
         for t_set in sampled_test_indices:
             true_match = []
             match_prob = []
+            cos_sims = []
             scene_ids_tset = []
             for i in t_set:
                 query = dataset[t_set[0]]
@@ -212,27 +241,65 @@ def eval_acc(model, database_3dssg, dataset, fold, mode='scanscribe', num_test_m
                 if (False):
                     print(f'db.scene_id: {db.scene_id}')
                 assert(query.scene_id == db.scene_id if i == t_set[0] else query.scene_id != db.scene_id)
-                query_subgraph, db_subgraph = get_matching_subgraph(query, db)
-                # if db_subgraph is None or len(db_subgraph.nodes) <= 1 or len(db_subgraph.edge_idx[0]) <= 1: db_subgraph = db
-                # if query_subgraph is None or len(query_subgraph.nodes) <= 1 or len(query_subgraph.edge_idx[0]) <= 1: query_subgraph = query
-                if db_subgraph is None or len(db_subgraph.nodes) <= 1 or len(db_subgraph.edge_idx[0]) < 1: db_subgraph = db # TODO: does this work with < 1?
-                if query_subgraph is None or len(query_subgraph.nodes) <= 1 or len(query_subgraph.edge_idx[0]) < 1: query_subgraph = query # TODO: does this work with < 1?
+                if (args.subgraph_ablation): # don't do subgraphing
+                    query_subgraph, db_subgraph = query, db
+                else:
+                    query_subgraph, db_subgraph = get_matching_subgraph(query, db)
+                    # if db_subgraph is None or len(db_subgraph.nodes) <= 1 or len(db_subgraph.edge_idx[0]) <= 1: db_subgraph = db
+                    # if query_subgraph is None or len(query_subgraph.nodes) <= 1 or len(query_subgraph.edge_idx[0]) <= 1: query_subgraph = query
+                    if db_subgraph is None or len(db_subgraph.nodes) <= 1 or len(db_subgraph.edge_idx[0]) < 1: db_subgraph = db # TODO: does this work with < 1?
+                    if query_subgraph is None or len(query_subgraph.nodes) <= 1 or len(query_subgraph.edge_idx[0]) < 1: query_subgraph = query # TODO: does this work with < 1?
                 x_node_ft, x_edge_idx, x_edge_ft = query_subgraph.to_pyg()
                 p_node_ft, p_edge_idx, p_edge_ft = db_subgraph.to_pyg()
 
+                t1 = time.time()
                 x_p, p_p, m_p = model(torch.tensor(np.array(x_node_ft), dtype=torch.float32).to('cuda'), torch.tensor(np.array(p_node_ft), dtype=torch.float32).to('cuda'),
                                         torch.tensor(x_edge_idx, dtype=torch.int64).to('cuda'), torch.tensor(p_edge_idx, dtype=torch.int64).to('cuda'),
                                         torch.tensor(np.array(x_edge_ft), dtype=torch.float32).to('cuda'), torch.tensor(np.array(p_edge_ft), dtype=torch.float32).to('cuda'))
+                if timer is not None:
+                    timer.text2graph_text_embedding_matching_score_time.append(time.time() - t1)
+                    timer.text2graph_text_embedding_matching_score_iter.append(1)
+
+                cos_sims.append((1 - F.cosine_similarity(x_p, p_p, dim=0)).item())
                 match_prob.append(m_p.item())
                 if (query.scene_id == db.scene_id): true_match.append(1)
                 else: true_match.append(0)
             
-            # sort w indices
-            match_prob = np.array(match_prob)
-            true_match = np.array(true_match)
-            sorted_indices = np.argsort(match_prob)
-            match_prob = match_prob[sorted_indices]
-            true_match = true_match[sorted_indices]
+
+            if (args.loss_ablation_m or args.eval_only_c):     # use the cosine similarity only
+                # sort w indices
+                cos_sims = np.array(cos_sims) # [0, 2] 0 is good
+                true_match = np.array(true_match)
+                t1 = time.time()
+                sorted_indices = np.argsort(cos_sims)
+                sorted_indices = sorted_indices[::-1]
+                if timer is not None:
+                    timer.text2graph_matching_time.append(time.time() - t1)
+                    timer.text2graph_matching_iter.append(1)
+                cos_sims = cos_sims[sorted_indices]
+                true_match = true_match[sorted_indices]
+            elif (args.loss_ablation_c): # use the matching probability only
+                # sort w indices
+                match_prob = np.array(match_prob)
+                true_match = np.array(true_match)
+                t1 = time.time()
+                sorted_indices = np.argsort(match_prob)
+                if timer is not None:
+                    timer.text2graph_matching_time.append(time.time() - t1)
+                    timer.text2graph_matching_iter.append(1)
+                match_prob = match_prob[sorted_indices]
+                true_match = true_match[sorted_indices]
+            else: # use matching probability only, TODO: might change this to some sort of average...
+                # sort w indices
+                match_prob = np.array(match_prob)
+                true_match = np.array(true_match)
+                t1 = time.time()
+                sorted_indices = np.argsort(match_prob)
+                if timer is not None:
+                    timer.text2graph_matching_time.append(time.time() - t1)
+                    timer.text2graph_matching_iter.append(1)
+                match_prob = match_prob[sorted_indices]
+                true_match = true_match[sorted_indices]
 
             scene_ids_tset = [scene_ids_tset[i] for i in sorted_indices]
 
@@ -261,10 +328,33 @@ def eval_acc(model, database_3dssg, dataset, fold, mode='scanscribe', num_test_m
     
     return accuracy
 
-def train_with_cross_val(dataset, database_3dssg, model, folds, epochs, batch_size):
+def train_with_cross_val(dataset, database_3dssg, model, folds, epochs, batch_size, entire_training_set):
+    if entire_training_set:
+        if args.continue_training:
+            model = BigGNN(args.N, args.heads).to('cuda')
+            model_dict = torch.load(f'../model_checkpoints/graph2graph/{args.continue_training_model}.pt')
+            model.load_state_dict(model_dict)
+        else: model = BigGNN(args.N, args.heads).to('cuda')
+        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+        
+        starting_epoch = 1
+        if (args.continue_training): 
+            starting_epoch = args.continue_training
+        epochs = epochs + starting_epoch
+        for epoch in tqdm(range(starting_epoch, epochs)):
+            _ = train(model=model, 
+                               optimizer=optimizer, 
+                               database_3dssg=database_3dssg, 
+                               dataset=dataset, 
+                               batch_size=batch_size, 
+                               fold=None)
+            if epoch % 2 == 0:
+                torch.save(model.state_dict(), f'../model_checkpoints/graph2graph/{args.model_name}_epoch_{epoch}_checkpoint.pt')
+        return model
+    
+    # else we do k-fold, or with 1 fold and validation set
     # assert(type(dataset) == list)
     val_losses, accs, durations = [], [], []
-    scanscribe_test_accs, human_test_accs = [], []
     for fold, (train_idx, val_idx) in enumerate(k_fold_by_scene(dataset, folds)):
         train_dataset = [dataset[i] for i in train_idx]
         val_dataset = [dataset[i] for i in val_idx]
@@ -272,8 +362,11 @@ def train_with_cross_val(dataset, database_3dssg, model, folds, epochs, batch_si
         print(f'length of training set in fold {fold}: {len(train_dataset)}')
         print(f'length of validation set in fold {fold}: {len(val_dataset)}')
         
-        # model.to(device).reset_parameters()
-        model = BigGNN(args.N).to('cuda') # for now because reset_parameters() was not working
+        if args.continue_training:
+            model = BigGNN(args.N, args.heads).to('cuda')
+            model_dict = torch.load(f'../model_checkpoints/graph2graph/{args.continue_training_model}.pt')
+            model.load_state_dict(model_dict)
+        else: model = BigGNN(args.N, args.heads).to('cuda')
         optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
         # if torch.cuda.is_available(): torch.cuda.synchronize()
@@ -284,13 +377,19 @@ def train_with_cross_val(dataset, database_3dssg, model, folds, epochs, batch_si
         #     except ImportError: pass
 
         # t_start = time.perf_counter()
-        for epoch in tqdm(range(1, epochs + 1)):
+        starting_epoch = 1
+        if (args.continue_training): 
+            starting_epoch = args.continue_training
+        epochs = epochs + starting_epoch
+        for epoch in tqdm(range(starting_epoch, epochs)):
             _ = train(model=model, 
                                optimizer=optimizer, 
                                database_3dssg=database_3dssg, 
                                dataset=train_dataset, 
                                batch_size=batch_size, 
                                fold=fold)
+            if epoch % 2 == 0:
+                torch.save(model.state_dict(), f'../model_checkpoints/graph2graph/{args.model_name}_epoch_{epoch}_checkpoint.pt')
             val_losses.append(eval_loss(model=model, 
                                         database_3dssg=database_3dssg, 
                                         dataset=val_dataset,
@@ -299,7 +398,7 @@ def train_with_cross_val(dataset, database_3dssg, model, folds, epochs, batch_si
                                  database_3dssg=database_3dssg, 
                                  dataset=val_dataset,
                                  fold=fold,
-                                 num_test_mini_sets=30))
+                                 eval_iter_count=30))
             eval_info = {
                 'fold': fold,
                 'epoch': epoch,
@@ -331,25 +430,13 @@ def train_with_cross_val(dataset, database_3dssg, model, folds, epochs, batch_si
     # duration_mean = duration.mean().item()
     # print(f'Val Loss: {loss_mean:.4f}, Test Accuracy: {acc_mean:.3f} '
     #       f'± {acc_std:.3f}, Duration: {duration_mean:.3f}')
-    
-    ################ REDUNDANT, already doing this at the end of everythin
-    # scanscribe_test_accs.append(eval_acc(model=model,
-    #                                 database_3dssg=_3dssg_graphs,
-    #                                 dataset=list(scanscribe_graphs_test.values()),
-    #                                 fold=None,
-    #                                 mode='scanscribe_test'))
-    # human_test_accs.append(eval_acc(model=model,
-    #                                 database_3dssg=_3dssg_graphs,
-    #                                 dataset=list(human_graphs_test.values()),
-    #                                 fold=None,
-    #                                 mode='human_test')) 
 
     return model#, loss_mean, acc_mean, acc_std
 
 ###################################### OLD ######################################
 
 def train_without_val(_3dssg_graphs, scanscribe_graphs):
-    model = BigGNN(args.N).to('cuda')
+    model = BigGNN(args.N, args.heads).to('cuda')
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
     current_keys = list(scanscribe_graphs.keys())
@@ -421,7 +508,7 @@ def train_without_val(_3dssg_graphs, scanscribe_graphs):
                             "avg_cos_sim_neg": avg_cos_sim_n.item()})
                 
             wandb.log({"loss_per_epoch": loss.item()})
-            if epoch % 10 == 0:
+            if epoch % 2 == 0:
                 # evaluate_model(model, scanscribe_graphs_test, _3dssg_graphs, 'test')
                 evaluate_model(model, human_graphs_test, _3dssg_graphs, 'test_human')
                 print(f'x_p first 10: {x_p[:10]}')
@@ -489,7 +576,7 @@ def train_without_val(_3dssg_graphs, scanscribe_graphs):
                     curr_batch = 0
 
             wandb.log({"loss_per_epoch": epoch_loss.item()})
-            if epoch % 10 == 0:
+            if epoch % 2 == 0:
                 evaluate_model(model, scanscribe_graphs_test, _3dssg_graphs, 'test')
                 print(f'x_p first 10: {x_p[:10]}')
                 print(f'x_n first 10: {x_n[:10]}')
@@ -541,27 +628,42 @@ def evaluate_model(model, scanscribe, _3dssg, mode='test'):
 
 if __name__ == '__main__':
     # In[0]: argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--mode', type=str, default='online')
-    parser.add_argument('--epoch', type=int, default=10)
-    parser.add_argument('--lr', type=float, default=0.0001)
-    parser.add_argument('--weight_decay', type=float, default=5e-5)
-    parser.add_argument('--N', type=int, default=1)
-    parser.add_argument('--overlap_thr', type=float, default=0.8)
-    parser.add_argument('--cos_sim_thr', type=float, default=0.5)
-    parser.add_argument('--batch_size', type=int, default=16)
-    parser.add_argument('--training_set_size', type=int, default=2847)
-    parser.add_argument('--test_set_size', type=int, default=712)
-    parser.add_argument('--graph_size_min', type=int, default=4, help='minimum number of nodes in a graph')
-    parser.add_argument('--contrastive_loss', type=bool, default=True)
-    parser.add_argument('--valid_top_k', nargs='+', type=int, default=[1, 2, 3, 5])
-    parser.add_argument('--use_attributes', type=bool, default=True)
-    parser.add_argument('--training_with_cross_val', type=bool, default=True)
-    parser.add_argument('--folds', type=int, default=5)
-    parser.add_argument('--skip_k_fold', type=bool, default=False)
-    args = parser.parse_args()
-    # In[1]
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument('--mode', type=str, default='online')
+    # parser.add_argument('--epoch', type=int, default=10)
+    # parser.add_argument('--lr', type=float, default=0.0001)
+    # parser.add_argument('--weight_decay', type=float, default=5e-5)
+    # parser.add_argument('--N', type=int, default=1)
+    # parser.add_argument('--overlap_thr', type=float, default=0.8)
+    # parser.add_argument('--cos_sim_thr', type=float, default=0.5)
+    # parser.add_argument('--batch_size', type=int, default=16)
+    # parser.add_argument('--training_set_size', type=int, default=2847)
+    # parser.add_argument('--test_set_size', type=int, default=712)
+    # parser.add_argument('--graph_size_min', type=int, default=4, help='minimum number of nodes in a graph')
+    # parser.add_argument('--contrastive_loss', type=bool, default=True)
+    # parser.add_argument('--valid_top_k', nargs='+', type=int, default=[1, 2, 3, 5])
+    # parser.add_argument('--use_attributes', type=bool, default=True)
+    # parser.add_argument('--training_with_cross_val', type=bool, default=True)
+    # parser.add_argument('--folds', type=int, default=5)
+    # parser.add_argument('--skip_k_fold', type=bool, default=False)
+    # parser.add_argument('--entire_training_set', action='store_true')
+    # parser.add_argument('--subgraph_ablation', action='store_true')
+    # parser.add_argument('--eval_iters', type=int, default=100)
+    # parser.add_argument('--model_name', type=str, default=None)
+    # parser.add_argument('--loss_ablation_m', action='store_true')
+    # parser.add_argument('--loss_ablation_c', action='store_true')
+    # args = parser.parse_args()
 
+    if (args.model_name is None):
+        print("Must define a model name")
+        print("Exiting...")
+        exit()
+    # make sure only 1 out of 2 loss ablations is true
+    if (args.loss_ablation_m and args.loss_ablation_c):
+        print("Can only have one loss ablation true at a time")
+        print("Exiting...")
+        exit()
+    # In[1]
     wandb.config = { "architecture": "self attention cross attention",
                      "dataset": "ScanScribe_cleaned"} # ScanScribe_1 is the cleaned dataset with ada_002 embeddings
     for arg in vars(args): wandb.config[arg] = getattr(args, arg)
@@ -626,7 +728,7 @@ if __name__ == '__main__':
     print(f'number of scanscribe test graphs before removing: {len(scanscribe_graphs_test)}')
     to_remove = []
     for g in scanscribe_graphs_test:
-        if len(scanscribe_graphs_test[g].edge_idx[0]) <= 1:
+        if len(scanscribe_graphs_test[g].edge_idx[0]) < 1:
             to_remove.append(g)
     for g in to_remove: del scanscribe_graphs_test[g]
     print(f'number of scanscribe test graphs after removing: {len(scanscribe_graphs_test)}')
@@ -694,24 +796,29 @@ if __name__ == '__main__':
 
 
     if args.training_with_cross_val:
-        model = BigGNN(args.N).to('cuda')
+        if args.continue_training: 
+            model = BigGNN(args.N, args.heads).to('cuda')
+            model_dict = torch.load(f'../model_checkpoints/graph2graph/{args.continue_training_model}.pt')
+            model.load_state_dict(model_dict)
+        else: model = BigGNN(args.N, args.heads).to('cuda')
         optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
         model = train_with_cross_val(database_3dssg=_3dssg_graphs, 
                                         dataset=scanscribe_graphs,
                                         model=model,
                                         folds=args.folds,
                                         epochs=args.epoch,
-                                        batch_size=args.batch_size)
+                                        batch_size=args.batch_size,
+                                        entire_training_set=args.entire_training_set)
     
     ######### SAVE SOME THINGS #########
-    model_name = 'model_100_epochs_5_folds'
+    model_name = args.model_name
     args_str = ''
     for arg in vars(args): args_str += f'\n{arg}_{getattr(args, arg)}'
     with open(f'../model_checkpoints/graph2graph/{model_name}_args.txt', 'w') as f: f.write(args_str)
     torch.save(model.state_dict(), f'../model_checkpoints/graph2graph/{model_name}.pt')
     ####################################
 
-    # model = BigGNN(args.N).to('cuda')
+    # model = BigGNN(args.N, args.heads).to('cuda')
     # model.load_state_dict(torch.load('../model_checkpoints/graph2graph/model_100epochs.pt'))
 
     t_start = time.perf_counter()
