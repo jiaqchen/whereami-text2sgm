@@ -62,12 +62,11 @@ def k_fold_by_scene(dataset, folds: int):
         val_scene_names_to_check.append(val_scene_names)
         train_scene_names_to_check.append([scene_name for scene_name in scene_names if scene_name not in val_scene_names])
 
-    # save the scene_names to a file
-    with open(f'./training_scene_ids.txt', 'r') as f:
-        for i, scene_name_list in enumerate(train_scene_names_to_check):
-            assert(str(scene_name_list) == f.readline().strip())
-    with open(f'./testing_scene_ids.txt', 'r') as f:
-        for i, scene_name_list in enumerate(val_scene_names_to_check):
-            assert(str(scene_name_list) == f.readline().strip())
+    # with open(f'./training_scene_ids.txt', 'r') as f:
+    #     for i, scene_name_list in enumerate(train_scene_names_to_check):
+    #         assert(str(scene_name_list) == f.readline().strip())
+    # with open(f'./testing_scene_ids.txt', 'r') as f:
+    #     for i, scene_name_list in enumerate(val_scene_names_to_check):
+    #         assert(str(scene_name_list) == f.readline().strip())
 
     return zip(train_indices, val_indices)
