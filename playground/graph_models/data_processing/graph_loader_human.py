@@ -13,19 +13,15 @@ def process_scenes_to_dict(dir_to_scenes):
     for id in tqdm(ids):
         # print(f'Processing scene {id}')
         try:
-            scene_dir = sorted([int(x[:-5]) for x in os.listdir(os.path.join(dir_to_scenes, id))])
+            # scene_dir = sorted([int(x[:-5]) for x in os.listdir(os.path.join(dir_to_scenes, id))])
             scene = {}
-            for file in scene_dir:
-                filename = str(file) + '.json'
-                with open(os.path.join(dir_to_scenes, id, filename)) as f:
-                    data = f.read()
-                    data = txt_to_json(data)
-                    data = json.loads(data)
-                    scene[file] = data
+            filename = id
+            with open(os.path.join(dir_to_scenes, filename)) as f:
+                scene = json.load(f)
         except Exception as e:
             print(f'Error processing scene {id}: {e}')
 
-        scenes[id] = scene
+        scenes[id.split('.')[0]] = scene
     return scenes
                 
 def add_edge_features(all_scenes):
@@ -57,10 +53,12 @@ def add_node_features(all_scenes):
     return all_scenes
 
 if __name__ == '__main__':
+    all_scenes = process_scenes_to_dict('/home/julia/Documents/h_coarse_loc/data/human/data_extract_completion')
     # all_scenes = torch.load('/home/julia/Documents/h_coarse_loc/playground/graph_models/data_checkpoints/processed_data/human/human_graphs_unprocessed.pt')
-    # all_scenes = add_node_features(all_scenes)
-    # all_scenes = add_edge_features(all_scenes)
-    # torch.save(all_scenes, '/home/julia/Documents/h_coarse_loc/playground/graph_models/data_checkpoints/processed_data/human/human_graphs_processed.pt')
+    all_scenes = add_node_features(all_scenes)
+    all_scenes = add_edge_features(all_scenes)
+    torch.save(all_scenes, '/home/julia/Documents/h_coarse_loc/playground/graph_models/data_checkpoints/processed_data/human/human_graphs_processed.pt')
 
     all_scenes = torch.load('/home/julia/Documents/h_coarse_loc/playground/graph_models/data_checkpoints/processed_data/human/human_graphs_processed.pt')
     print(f'keys: {all_scenes.keys()}')
+    print(f'len of keys: {len(all_scenes.keys())}')

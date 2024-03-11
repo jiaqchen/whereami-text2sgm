@@ -15,8 +15,8 @@ import torch.nn.functional as F
 from torch_geometric.nn import MessagePassing, GATConv, GCNConv, TransformerConv
 
 import sys
-sys.path.append('/home/julia/Documents/h_coarse_loc')
-sys.path.append('/home/julia/Documents/h_coarse_loc/playground/graph_models')
+sys.path.append('../../../') # sys.path.append('/home/julia/Documents/h_coarse_loc')
+sys.path.append('../') # sys.path.append('/home/julia/Documents/h_coarse_loc/playground/graph_models')
 from playground.graph_models.data_processing.sg_dataloader import SceneGraph, Node
 from hungarian.sinkhorn import get_optimal_transport_scores, optimal_transport_between_two_graphs, get_subgraph
 from playground.graph_models.src.utils import print_closest_words, make_cross_graph, mask_node, accuracy_score, verify_subgraph
