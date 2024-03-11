@@ -579,6 +579,7 @@ if __name__ == '__main__':
                                             max_dist=1.0, embedding_type='word2vec',
                                             use_attributes=args.use_attributes)
 
+
     # scanscribe_graphs = torch.load('../data_checkpoints/processed_data/training/scanscribe_graphs_train_graph_min_size_4.pt')       # 80% split len 2847
     scanscribe_graphs = {}
     scanscribe_scenes = torch.load('../data_checkpoints/processed_data/training/scanscribe_graphs_train_final_no_graph_min.pt')
@@ -642,6 +643,55 @@ if __name__ == '__main__':
                                    graph=h_graphs_test[k],
                                    embedding_type='word2vec',
                                    use_attributes=args.use_attributes) for k in h_graphs_test}
+
+
+
+    ###################### MEMORY SIZE ANALYSIS ######################
+    b_n = 0
+    b_e = 0
+    b_f = 0
+    b_n_h = 0
+    b_e_h = 0
+    b_f_h = 0
+    scanscribe_graphs_list_of_ids = [a.split('_')[0] for a in list(scanscribe_graphs_test.keys())]
+    human_graphs_list_of_ids = [a.split('_')[0] for a in list(human_graphs_test.keys())]
+    assert(all([a in _3dssg_graphs for a in scanscribe_graphs_list_of_ids]))
+    assert(all([a in _3dssg_graphs for a in human_graphs_list_of_ids]))
+
+    # analyze the graph memory size
+    for g in _3dssg_graphs:
+        if g in scanscribe_graphs_list_of_ids:
+            graph = _3dssg_graphs[g]
+            # bytes for self.nodes
+            for n in graph.nodes:
+                n = graph.nodes[n]
+                b_n += np.array(n.features).size * np.array(n.features).itemsize
+
+            # bytes for self.edge_idx
+            b_e += np.array(graph.edge_idx).size * np.array(graph.edge_idx).itemsize
+
+            # bytes for self.edge_features
+            b_f += np.array(graph.edge_features).size * np.array(graph.edge_features).itemsize
+        if g in human_graphs_list_of_ids:
+            graph = _3dssg_graphs[g]
+            # bytes for self.nodes
+            for n in graph.nodes:
+                n = graph.nodes[n]
+                b_n_h += np.array(n.features).size * np.array(n.features).itemsize
+
+            # bytes for self.edge_idx
+            b_e_h += np.array(graph.edge_idx).size * np.array(graph.edge_idx).itemsize
+
+            # bytes for self.edge_features
+            b_f_h += np.array(graph.edge_features).size * np.array(graph.edge_features).itemsize
+
+    print(f'SCANSCRIBE b_n: {b_n}, b_e: {b_e}, b_f: {b_f}, total: {b_n + b_e + b_f}')
+    print(f'HUMAN b_n_h: {b_n_h}, b_e_h: {b_e_h}, b_f_h: {b_f_h}, total: {b_n_h + b_e_h + b_f_h}')
+    exit()
+
+
+
+
 
     if args.training_with_cross_val:
         model = BigGNN(args.N).to('cuda')

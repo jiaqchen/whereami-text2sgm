@@ -9,7 +9,7 @@ sys.path.append('../../../') # sys.path.append('/home/julia/Documents/h_coarse_l
 from playground.graph_models.src.utils import make_cross_graph
         
 class SimpleTConv(MessagePassing):
-    def __init__(self, in_n, in_e, out_n):
+    def __init__(self, in_n, in_e, out_n, heads):
         # super().__init__(aggr=aggr.AttentionalAggregation(gate_nn=nn.Sequential(
         #     nn.Linear(out_n, out_n),
         #     nn.LeakyReLU(),
@@ -18,7 +18,7 @@ class SimpleTConv(MessagePassing):
         #     nn.Linear(out_n, 1)
         # )))
         super().__init__(aggr='add')
-        self.TConv = TransformerConv(in_n, out_n, concat=False, heads=2, dropout=0.5, edge_dim=in_e)
+        self.TConv = TransformerConv(in_n, out_n, concat=False, heads=heads, dropout=0.5, edge_dim=in_e)
         self.act = nn.LeakyReLU()
 
     def forward(self, x, edge_index, edge_attr):
@@ -29,14 +29,14 @@ class SimpleTConv(MessagePassing):
 
 class BigGNN(nn.Module):
 
-    def __init__(self, N):
+    def __init__(self, N, heads):
         super().__init__()
         self.N = N
         in_n, in_e, out_n = 300, 300, 300
-        self.TSALayers = nn.ModuleList([SimpleTConv(in_n, in_e, out_n) for _ in range(N)])
-        self.GSALayers = nn.ModuleList([SimpleTConv(in_n, in_e, out_n) for _ in range(N)])
-        self.TCALayers = nn.ModuleList([SimpleTConv(in_n, in_e, out_n) for _ in range(N)])
-        self.GCALayers = nn.ModuleList([SimpleTConv(in_n, in_e, out_n) for _ in range(N)])
+        self.TSALayers = nn.ModuleList([SimpleTConv(in_n, in_e, out_n, heads) for _ in range(N)])
+        self.GSALayers = nn.ModuleList([SimpleTConv(in_n, in_e, out_n, heads) for _ in range(N)])
+        self.TCALayers = nn.ModuleList([SimpleTConv(in_n, in_e, out_n, heads) for _ in range(N)])
+        self.GCALayers = nn.ModuleList([SimpleTConv(in_n, in_e, out_n, heads) for _ in range(N)])
 
         self.SceneText_MLP = nn.Sequential(
             nn.Linear(300*2, 600), # TODO: input dimension is hardcoded now
@@ -59,7 +59,9 @@ class BigGNN(nn.Module):
             x_1 = self.TSALayers[i](x_1, edge_idx_1, edge_attr_1)
             x_2 = self.GSALayers[i](x_2, edge_idx_2, edge_attr_2)
             ############# Self Attention #############
-
+            # x_1_pooled = torch.mean(x_1, dim=0)
+            # x_2_pooled = torch.mean(x_2, dim=0)
+            # return x_1_pooled, x_2_pooled, None
             ############# Cross Attention #############
             len_x_1 = x_1.shape[0]
             len_x_2 = x_2.shape[0]
