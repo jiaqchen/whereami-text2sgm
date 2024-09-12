@@ -1,1 +1,3 @@
-room level localization, using scene graphs and scene descriptions
+Scene Retrieval using Language
+
+Repository is continuously undergoing updates.
