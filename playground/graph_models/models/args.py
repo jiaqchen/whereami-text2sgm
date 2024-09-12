@@ -37,5 +37,8 @@ def get_args():
 
     parser.add_argument('--eval_entire_dataset', action='store_true')
     parser.add_argument('--heads', type=int, default=2)
+
+    parser.add_argument('--scannet', action='store_true')
+    parser.add_argument('--scanscribe_auto_gen', action='store_true')
     args = parser.parse_args()
     return args

@@ -12,8 +12,13 @@ python3 train.py \
     --weight_decay 0.00005 \
     --batch_size 16 \
     --contrastive_loss True \
-    --valid_top_k 1 3 5 \
+    --valid_top_k 1 2 3 5 \
     --use_attributes True \
     --training_with_cross_val True \
     --folds 10 \
-    --skip_k_fold True
+    --skip_k_fold True \
+    --eval_iters 30 \
+    --subgraph_ablation \
+    --heads 2 \
+    --loss_ablation_m \
+    --model_name model_NO_subg_100_epochs_30_eval_iters_loss_ablation_m_cut_cross

@@ -24,7 +24,7 @@ parser.add_argument('--eval_iter', type=int, default=10000, help='Number of iter
 parser.add_argument('--top', type=int, default=[1, 2, 3, 5], help='')
 parser.add_argument('--out_of', type=int, default=10, help='')
 parser.add_argument('--eval_iter_count', type=int, default=100, help='Number of iterations to evaluate')
-parser.add_argument('--dataset', type=str, default='scanscribe', help='scanscribe or human')
+parser.add_argument('--dataset', type=str, default='scanscribe', help='scanscribe or human or sgfusion')
 parser.add_argument('--direction', type=str, default='image_to_text', help='text_to_image or image_to_text')
 parser.add_argument('--eval_entire_dataset', action='store_true', help='')
 parser.add_argument('--take_avg_sent_emb_first', action='store_true', help='')
@@ -151,6 +151,8 @@ if args.dataset == "human":
     all_sentence_scenes_human = [scene for scene, sentences in scene_sentences_tuples_human for sentence in sentences]
     assert(len(all_sentences_human) == len(all_sentence_scenes_human))
     assert(len(scenes) == len(set(scenes)))
+
+
 
 
 # print(f'human {all_sentences_human[:10]}')
